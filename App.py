@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import os
+import sqlite3
 from datetime import datetime
 import matplotlib.pyplot as plt
 
@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-FILE = "cassette_database.csv"
+DB = "cassette.db"
 
 columns = [
     "Date",
@@ -43,52 +43,120 @@ columns = [
 ]
 
 # ==========================
-# SAFE FILE INIT
+# DB CONNECTION
 # ==========================
 
-if not os.path.exists(FILE):
-    pd.DataFrame(columns=columns).to_csv(FILE, index=False)
+def get_conn():
+    return sqlite3.connect(DB)
+
+def init_db():
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS cassette (
+        Date TEXT,
+        "Battery Cassette ID" TEXT,
+        "BMS Software Version" TEXT,
+        Voltage TEXT,
+        Current TEXT,
+        Temperature TEXT,
+        "SOC %" TEXT,
+        "SOH %" TEXT,
+        "Cycle Count" TEXT,
+        "Distance Covered Km" TEXT,
+        "Issue-Free Km" TEXT,
+        "Root Cause" TEXT,
+        "Issue Status" TEXT,
+        "Overall Status" TEXT,
+        "Fault Code" TEXT,
+        "Battery Health" TEXT,
+        "Over Heating" TEXT,
+        "Cell Imbalance" TEXT,
+        "Connector Issue" TEXT,
+        "Charging Issue" TEXT,
+        "Discharging Issue" TEXT,
+        Remarks TEXT,
+        "Application Area" TEXT,
+        "Current Location" TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # ==========================
-# SAFE LOAD
+# LOAD DATA
 # ==========================
 
 def load_data():
-    if os.path.exists(FILE):
-        try:
-            df = pd.read_csv(FILE)
-            return df
-        except:
-            return pd.DataFrame(columns=columns)
-    return pd.DataFrame(columns=columns)
+    conn = get_conn()
+    df = pd.read_sql_query("SELECT * FROM cassette", conn)
+    conn.close()
+    return df
 
 # ==========================
 # SAVE RECORD
 # ==========================
 
 def save_record(data):
-    df = load_data()
-    df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
-    df.to_csv(FILE, index=False)
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO cassette VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        data["Date"],
+        data["Battery Cassette ID"],
+        data["BMS Software Version"],
+        data["Voltage"],
+        data["Current"],
+        data["Temperature"],
+        data["SOC %"],
+        data["SOH %"],
+        data["Cycle Count"],
+        data["Distance Covered Km"],
+        data["Issue-Free Km"],
+        data["Root Cause"],
+        data["Issue Status"],
+        data["Overall Status"],
+        data["Fault Code"],
+        data["Battery Health"],
+        data["Over Heating"],
+        data["Cell Imbalance"],
+        data["Connector Issue"],
+        data["Charging Issue"],
+        data["Discharging Issue"],
+        data["Remarks"],
+        data["Application Area"],
+        data["Current Location"]
+    ))
+
+    conn.commit()
+    conn.close()
 
 # ==========================
 # DELETE RECORD
 # ==========================
 
 def delete_record(cassette_id):
-    df = load_data()
+    conn = get_conn()
+    cursor = conn.cursor()
 
-    if "Battery Cassette ID" not in df.columns:
-        return
+    cursor.execute("""
+    DELETE FROM cassette WHERE "Battery Cassette ID"=?
+    """, (cassette_id,))
 
-    df = df[df["Battery Cassette ID"].astype(str) != str(cassette_id)]
-    df.to_csv(FILE, index=False)
+    conn.commit()
+    conn.close()
 
 # ==========================
-# TITLE
+# UI
 # ==========================
 
-st.title("🔋 Cassette Entry System")
+st.title("🔋 Cassette Entry System (SQLite Version)")
 
 tab1, tab2, tab3 = st.tabs([
     "Add Entry",
@@ -97,14 +165,14 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ==========================
-# TAB 1 - ADD ENTRY
+# TAB 1
 # ==========================
 
 with tab1:
 
     st.subheader("Add New Battery Record")
 
-    with st.form("entry_form"):
+    with st.form("form"):
 
         data = {}
 
@@ -137,19 +205,19 @@ with tab1:
                 else:
                     data[field] = st.text_input(field)
 
-        submitted = st.form_submit_button("💾 Save Record")
+        submit = st.form_submit_button("💾 Save Record")
 
-        if submitted:
+        if submit:
 
             if data["Battery Cassette ID"].strip() == "":
                 st.error("Battery Cassette ID Required")
 
             else:
                 save_record(data)
-                st.success("Record Saved Successfully")
+                st.success("Saved Successfully")
 
 # ==========================
-# TAB 2 - DATABASE
+# TAB 2
 # ==========================
 
 with tab2:
@@ -158,76 +226,57 @@ with tab2:
 
     df = load_data()
 
-    search = st.text_input("Search Any Value")
+    search = st.text_input("Search")
 
     if search:
-
-        mask = df.astype(str).apply(
-            lambda row: row.str.contains(search, case=False).any(),
-            axis=1
-        )
-
-        df = df[mask]
+        df = df[df.astype(str).apply(lambda row: row.str.contains(search, case=False).any(), axis=1)]
 
     st.dataframe(df, use_container_width=True)
 
     st.download_button(
-        "📥 Download CSV",
-        data=df.to_csv(index=False),
-        file_name="cassette_export.csv",
-        mime="text/csv"
+        "Download CSV",
+        df.to_csv(index=False),
+        "cassette_export.csv",
+        "text/csv"
     )
 
-    st.markdown("---")
     st.subheader("Delete Record")
 
     if len(df) > 0:
 
         cassette = st.selectbox(
-            "Select Cassette ID",
+            "Select ID",
             df["Battery Cassette ID"].astype(str).unique()
         )
 
-        if st.button("🗑 Delete"):
-
+        if st.button("Delete"):
             delete_record(cassette)
-            st.success(f"{cassette} deleted successfully")
+            st.success("Deleted")
             st.rerun()
 
 # ==========================
-# TAB 3 - ANALYTICS
+# TAB 3
 # ==========================
 
 with tab3:
 
-    st.subheader("Analytics Dashboard")
+    st.subheader("Analytics")
 
     df = load_data()
 
     if df.empty:
-        st.warning("No Data Available")
-
+        st.warning("No Data")
     else:
 
-        graph_column = st.selectbox(
-            "Select Parameter",
-            df.columns
-        )
+        col = st.selectbox("Select Parameter", df.columns)
 
-        counts = df[graph_column].astype(str).value_counts()
+        counts = df[col].astype(str).value_counts()
 
         fig, ax = plt.subplots(figsize=(10, 5))
-
         ax.bar(counts.index, counts.values, color="#00BFFF")
-        ax.set_title(graph_column)
 
         plt.xticks(rotation=45)
 
         st.pyplot(fig)
 
-        st.subheader("Statistics")
-
-        st.write(f"Total Records: {len(df)}")
-
-        if "Issue Status" in df.columns:
-            st.write(df["Issue Status"].value_counts())
+        st.write("Total Records:", len(df))
