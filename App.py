@@ -15,87 +15,27 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "cassette.db")
 
 # ==========================
-# SIMPLE LOGIN SYSTEM
+# SESSION INIT
 # ==========================
-
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 if "role" not in st.session_state:
-    st.session_state.role = "guest"
+    st.session_state.role = None
 
-def login():
-    st.title("🔐 Login")
-
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-            st.session_state.logged_in = True
-            st.session_state.role = "admin"
-            st.success("Login successful as Admin")
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
-
-if not st.session_state.logged_in:
-    login()
-    st.stop()
+if "username" not in st.session_state:
+    st.session_state.username = None
 
 # ==========================
-# LOGOUT BUTTON
-# ==========================
-
-st.sidebar.write(f"Logged in as: **{st.session_state.role}**")
-
-if st.sidebar.button("Logout"):
-    st.session_state.logged_in = False
-    st.session_state.role = "guest"
-    st.rerun()
-
-# ==========================
-# COLUMNS
-# ==========================
-
-columns = [
-    "Date",
-    "Battery Cassette ID",
-    "BMS Software Version",
-    "Voltage",
-    "Current",
-    "Temperature",
-    "SOC %",
-    "SOH %",
-    "Cycle Count",
-    "Distance Covered Km",
-    "Issue-Free Km",
-    "Root Cause",
-    "Issue Status",
-    "Overall Status",
-    "Fault Code",
-    "Battery Health",
-    "Over Heating",
-    "Cell Imbalance",
-    "Connector Issue",
-    "Charging Issue",
-    "Discharging Issue",
-    "Remarks",
-    "Application Area",
-    "Current Location"
-]
-
-# ==========================
-# INIT DB
+# DATABASE INIT
 # ==========================
 
 def init_db():
     conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
+    # cassette table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS cassette (
         Date TEXT,
@@ -125,14 +65,73 @@ def init_db():
     )
     """)
 
+    # users table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        role TEXT
+    )
+    """)
+
+    # default admin
+    cursor.execute("""
+    INSERT OR IGNORE INTO users VALUES ('admin', 'admin123', 'admin')
+    """)
+
     conn.commit()
     conn.close()
 
 init_db()
 
 # ==========================
-# DB FUNCTIONS
+# AUTH FUNCTIONS
 # ==========================
+
+def authenticate(username, password):
+    conn = sqlite3.connect(DB)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT role FROM users
+    WHERE username=? AND password=?
+    """, (username, password))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    return result[0] if result else None
+
+# ==========================
+# DATA FUNCTIONS
+# ==========================
+
+columns = [
+    "Date",
+    "Battery Cassette ID",
+    "BMS Software Version",
+    "Voltage",
+    "Current",
+    "Temperature",
+    "SOC %",
+    "SOH %",
+    "Cycle Count",
+    "Distance Covered Km",
+    "Issue-Free Km",
+    "Root Cause",
+    "Issue Status",
+    "Overall Status",
+    "Fault Code",
+    "Battery Health",
+    "Over Heating",
+    "Cell Imbalance",
+    "Connector Issue",
+    "Charging Issue",
+    "Discharging Issue",
+    "Remarks",
+    "Application Area",
+    "Current Location"
+]
 
 def load_data():
     conn = sqlite3.connect(DB)
@@ -140,14 +139,12 @@ def load_data():
     conn.close()
     return df
 
-
 def save_record(data):
     conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
     cols = ", ".join([f'"{c}"' for c in columns])
     placeholders = ", ".join(["?"] * len(columns))
-
     values = tuple(data.get(c, "") for c in columns)
 
     cursor.execute(f"""
@@ -157,7 +154,6 @@ def save_record(data):
 
     conn.commit()
     conn.close()
-
 
 def delete_record(cid):
     conn = sqlite3.connect(DB)
@@ -171,10 +167,56 @@ def delete_record(cid):
     conn.close()
 
 # ==========================
-# UI
+# LOGIN PAGE
+# ==========================
+
+def login_page():
+    st.title("🔐 Cassette System Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        role = authenticate(username, password)
+
+        if role:
+            st.session_state.logged_in = True
+            st.session_state.role = role
+            st.session_state.username = username
+            st.success(f"Welcome {username} ({role})")
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+# ==========================
+# LOGOUT
+# ==========================
+
+def logout():
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.session_state.role = None
+        st.session_state.username = None
+        st.rerun()
+
+# ==========================
+# BLOCK IF NOT LOGGED IN
+# ==========================
+
+if not st.session_state.logged_in:
+    login_page()
+    st.stop()
+
+# ==========================
+# UI HEADER
 # ==========================
 
 st.title("🔋 Cassette Operation System")
+
+st.sidebar.write(f"👤 User: {st.session_state.username}")
+st.sidebar.write(f"🔐 Role: {st.session_state.role}")
+
+logout()
 
 tab1, tab2, tab3 = st.tabs(["➕ Add Entry", "📊 Database", "📈 Analytics"])
 
@@ -187,7 +229,7 @@ with tab1:
     st.subheader("Add New Record")
 
     if st.session_state.role != "admin":
-        st.warning("Only Admin can add or edit data.")
+        st.warning("Only admin can add/edit records.")
     else:
 
         with st.form("form"):
@@ -223,7 +265,7 @@ with tab1:
                     st.success("Saved Successfully")
 
 # ==========================
-# TAB 2 - VIEW (ALL USERS)
+# TAB 2 - DATABASE
 # ==========================
 
 with tab2:
@@ -233,31 +275,19 @@ with tab2:
     search = st.text_input("Search Data")
 
     if search:
-        df = df[df.astype(str).apply(
-            lambda r: r.str.contains(search, case=False).any(),
-            axis=1
-        )]
+        df = df[df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)]
 
     st.dataframe(df, use_container_width=True)
 
-    st.download_button(
-        "⬇ Download CSV",
-        df.to_csv(index=False),
-        "cassette_data.csv",
-        "text/csv"
-    )
+    st.download_button("⬇ Download CSV", df.to_csv(index=False), "cassette_data.csv", "text/csv")
 
-    # DELETE ONLY ADMIN
     if st.session_state.role == "admin":
 
         st.subheader("🗑 Delete Record")
 
         if len(df) > 0:
 
-            cid = st.selectbox(
-                "Select Cassette ID",
-                df["Battery Cassette ID"].astype(str).unique()
-            )
+            cid = st.selectbox("Select Cassette ID", df["Battery Cassette ID"].astype(str).unique())
 
             if st.button("Delete"):
                 delete_record(cid)
@@ -265,7 +295,7 @@ with tab2:
                 st.rerun()
 
     else:
-        st.info("Login as admin to delete records.")
+        st.info("Only admin can delete records.")
 
 # ==========================
 # TAB 3 - ANALYTICS
