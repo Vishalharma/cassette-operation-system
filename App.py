@@ -15,7 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "cassette.db")
 
 # ==========================
-# SESSION INIT
+# SESSION STATE
 # ==========================
 
 if "logged_in" not in st.session_state:
@@ -28,14 +28,26 @@ if "username" not in st.session_state:
     st.session_state.username = None
 
 # ==========================
-# DATABASE INIT
+# DB INIT (FIXED SAFE VERSION)
 # ==========================
 
+def get_conn():
+    return sqlite3.connect(DB, check_same_thread=False)
+
 def init_db():
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
     cursor = conn.cursor()
 
-    # cassette table
+    # USERS TABLE
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        role TEXT
+    )
+    """)
+
+    # CASSETTE TABLE
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS cassette (
         Date TEXT,
@@ -65,19 +77,17 @@ def init_db():
     )
     """)
 
-    # users table
+    # SAFE ADMIN INSERT (FIXED)
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
-        password TEXT,
-        role TEXT
-    )
+    SELECT COUNT(*) FROM users WHERE username='admin'
     """)
+    exists = cursor.fetchone()[0]
 
-    # default admin
-    cursor.execute("""
-    INSERT OR IGNORE INTO users VALUES ('admin', 'admin123', 'admin')
-    """)
+    if exists == 0:
+        cursor.execute("""
+        INSERT INTO users (username, password, role)
+        VALUES (?, ?, ?)
+        """, ("admin", "admin123", "admin"))
 
     conn.commit()
     conn.close()
@@ -85,11 +95,11 @@ def init_db():
 init_db()
 
 # ==========================
-# AUTH FUNCTIONS
+# AUTH
 # ==========================
 
 def authenticate(username, password):
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -103,7 +113,7 @@ def authenticate(username, password):
     return result[0] if result else None
 
 # ==========================
-# DATA FUNCTIONS
+# DATA COLUMNS
 # ==========================
 
 columns = [
@@ -133,14 +143,18 @@ columns = [
     "Current Location"
 ]
 
+# ==========================
+# DB FUNCTIONS
+# ==========================
+
 def load_data():
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
     df = pd.read_sql_query("SELECT * FROM cassette", conn)
     conn.close()
     return df
 
 def save_record(data):
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
     cursor = conn.cursor()
 
     cols = ", ".join([f'"{c}"' for c in columns])
@@ -156,7 +170,7 @@ def save_record(data):
     conn.close()
 
 def delete_record(cid):
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -221,7 +235,7 @@ logout()
 tab1, tab2, tab3 = st.tabs(["➕ Add Entry", "📊 Database", "📈 Analytics"])
 
 # ==========================
-# TAB 1 - ADD (ADMIN ONLY)
+# TAB 1 (ADMIN ONLY)
 # ==========================
 
 with tab1:
@@ -265,7 +279,7 @@ with tab1:
                     st.success("Saved Successfully")
 
 # ==========================
-# TAB 2 - DATABASE
+# TAB 2 (VIEW ALL)
 # ==========================
 
 with tab2:
@@ -298,7 +312,7 @@ with tab2:
         st.info("Only admin can delete records.")
 
 # ==========================
-# TAB 3 - ANALYTICS
+# TAB 3 (ANALYTICS)
 # ==========================
 
 with tab3:
