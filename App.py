@@ -15,14 +15,14 @@ st.set_page_config(
 )
 
 # ==========================
-# DB PATH (SAFE)
+# DB PATH
 # ==========================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "cassette.db")
 
 # ==========================
-# TABLE COLUMNS
+# COLUMNS
 # ==========================
 
 columns = [
@@ -53,7 +53,7 @@ columns = [
 ]
 
 # ==========================
-# INIT DATABASE (FIXED SAFE)
+# INIT DB
 # ==========================
 
 def init_db():
@@ -105,67 +105,28 @@ def load_data():
     return df
 
 # ==========================
-# SAVE RECORD (FIXED - NO ERROR)
+# SAVE RECORD (FIXED + SAFE)
 # ==========================
 
 def save_record(data):
     conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
-    cursor.execute("""
-    INSERT OR REPLACE INTO cassette (
-        Date,
-        "Battery Cassette ID",
-        "BMS Software Version",
-        Voltage,
-        Current,
-        Temperature,
-        "SOC %",
-        "SOH %",
-        "Cycle Count",
-        "Distance Covered Km",
-        "Issue-Free Km",
-        "Root Cause",
-        "Issue Status",
-        "Overall Status",
-        "Fault Code",
-        "Battery Health",
-        "Over Heating",
-        "Cell Imbalance",
-        "Connector Issue",
-        "Charging Issue",
-        "Discharging Issue",
-        Remarks,
-        "Application Area",
-        "Current Location"
+    cols = ", ".join([f'"{c}"' for c in columns])
+    placeholders = ", ".join(["?"] * len(columns))
+
+    values = tuple(
+        data.get(c, "").strip() if isinstance(data.get(c, ""), str)
+        else data.get(c, "")
+        for c in columns
     )
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, (
-        data["Date"],
-        data["Battery Cassette ID"],
-        data["BMS Software Version"],
-        data["Voltage"],
-        data["Current"],
-        data["Temperature"],
-        data["SOC %"],
-        data["SOH %"],
-        data["Cycle Count"],
-        data["Distance Covered Km"],
-        data["Issue-Free Km"],
-        data["Root Cause"],
-        data["Issue Status"],
-        data["Overall Status"],
-        data["Fault Code"],
-        data["Battery Health"],
-        data["Over Heating"],
-        data["Cell Imbalance"],
-        data["Connector Issue"],
-        data["Charging Issue"],
-        data["Discharging Issue"],
-        data["Remarks"],
-        data["Application Area"],
-        data["Current Location"]
-    ))
+
+    sql = f"""
+    INSERT OR REPLACE INTO cassette ({cols})
+    VALUES ({placeholders})
+    """
+
+    cursor.execute(sql, values)
 
     conn.commit()
     conn.close()
@@ -194,7 +155,7 @@ st.title("🔋 Cassette Operation System")
 tab1, tab2, tab3 = st.tabs(["➕ Add Entry", "📊 Database", "📈 Analytics"])
 
 # ==========================
-# TAB 1
+# TAB 1 - ADD
 # ==========================
 
 with tab1:
@@ -234,7 +195,7 @@ with tab1:
                 st.success("Saved Successfully")
 
 # ==========================
-# TAB 2
+# TAB 2 - DATABASE
 # ==========================
 
 with tab2:
@@ -244,7 +205,10 @@ with tab2:
     search = st.text_input("Search Data")
 
     if search:
-        df = df[df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)]
+        df = df[df.astype(str).apply(
+            lambda r: r.str.contains(search, case=False).any(),
+            axis=1
+        )]
 
     st.dataframe(df, use_container_width=True)
 
@@ -259,7 +223,10 @@ with tab2:
 
     if len(df) > 0:
 
-        cid = st.selectbox("Select Cassette ID", df["Battery Cassette ID"].astype(str).unique())
+        cid = st.selectbox(
+            "Select Cassette ID",
+            df["Battery Cassette ID"].astype(str).unique()
+        )
 
         if st.button("Delete"):
             delete_record(cid)
@@ -267,7 +234,7 @@ with tab2:
             st.rerun()
 
 # ==========================
-# TAB 3
+# TAB 3 - ANALYTICS
 # ==========================
 
 with tab3:
