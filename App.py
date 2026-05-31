@@ -53,7 +53,7 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
 
-    # CASSETTE TABLE
+    # Cassette Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS cassette (
         Date TEXT,
@@ -83,7 +83,7 @@ def init_db():
     )
     """)
 
-    # USERS TABLE
+    # Users Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +94,7 @@ def init_db():
     )
     """)
 
-    # LOGIN HISTORY
+    # Login history
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS login_history(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,7 +103,7 @@ def init_db():
     )
     """)
 
-    # DEFAULT ADMIN
+    # Default admin
     cursor.execute("""
     INSERT OR IGNORE INTO users(username,password,role,active)
     VALUES ('admin','admin123','Admin',1)
@@ -115,7 +115,7 @@ def init_db():
 init_db()
 
 # ==========================
-# AUTH FUNCTION
+# AUTH FUNCTIONS
 # ==========================
 
 def login_user(username, password):
@@ -132,6 +132,24 @@ def login_user(username, password):
     conn.close()
     return user
 
+
+def signup_user(username, password):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+        INSERT INTO users(username, password, role, active)
+        VALUES (?, ?, 'User', 1)
+        """, (username, password))
+
+        conn.commit()
+        return True
+    except:
+        return False
+    finally:
+        conn.close()
+
 # ==========================
 # DATA FUNCTIONS
 # ==========================
@@ -141,6 +159,7 @@ def load_data():
     df = pd.read_sql_query("SELECT * FROM cassette", conn)
     conn.close()
     return df
+
 
 def save_record(data):
     conn = get_conn()
@@ -152,6 +171,7 @@ def save_record(data):
 
     conn.commit()
     conn.close()
+
 
 def delete_record(cid):
     conn = get_conn()
@@ -165,53 +185,75 @@ def delete_record(cid):
     conn.close()
 
 # ==========================
-# LOGIN SYSTEM
+# SESSION INIT
 # ==========================
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+# ==========================
+# LOGIN / SIGNUP PAGE
+# ==========================
+
 if not st.session_state.logged_in:
 
-    st.title("🔐 Cassette Operation System Login")
+    st.title("🔐 Cassette Operation System")
 
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    tab1, tab2 = st.tabs(["Login", "Signup"])
 
-    if st.button("Login"):
+    # LOGIN
+    with tab1:
 
-        user = login_user(username, password)
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
 
-        if user:
+        if st.button("Login"):
 
-            if user[2] == 0:
-                st.error("User Inactive")
-                st.stop()
+            user = login_user(username, password)
 
-            st.session_state.logged_in = True
-            st.session_state.username = user[0]
-            st.session_state.role = user[1]
+            if user:
 
-            conn = get_conn()
-            cursor = conn.cursor()
+                if user[2] == 0:
+                    st.error("User inactive")
+                    st.stop()
 
-            cursor.execute("""
-            INSERT INTO login_history(username, login_time)
-            VALUES (?,?)
-            """, (user[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                st.session_state.logged_in = True
+                st.session_state.username = user[0]
+                st.session_state.role = user[1]
 
-            conn.commit()
-            conn.close()
+                conn = get_conn()
+                cursor = conn.cursor()
 
-            st.rerun()
+                cursor.execute("""
+                INSERT INTO login_history(username, login_time)
+                VALUES (?,?)
+                """, (user[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
-        else:
-            st.error("Invalid Login")
+                conn.commit()
+                conn.close()
+
+                st.rerun()
+
+            else:
+                st.error("Invalid login")
+
+    # SIGNUP
+    with tab2:
+
+        new_user = st.text_input("Create Username")
+        new_pass = st.text_input("Create Password", type="password")
+
+        if st.button("Signup"):
+
+            if signup_user(new_user, new_pass):
+                st.success("Account created! Now login")
+            else:
+                st.error("Username already exists")
 
     st.stop()
 
 # ==========================
-# HEADER
+# MAIN APP
 # ==========================
 
 st.title("🔋 Cassette Operation System")
@@ -232,12 +274,12 @@ st.success(f"Logged in as {st.session_state.username} ({st.session_state.role})"
 tab1, tab2, tab3 = st.tabs(["Add Entry", "Database", "Analytics"])
 
 # ==========================
-# TAB 1
+# ADD ENTRY
 # ==========================
 
 with tab1:
 
-    st.subheader("Add New Record")
+    st.subheader("Add Record")
 
     with st.form("form"):
 
@@ -273,7 +315,7 @@ with tab1:
                 st.success("Saved Successfully")
 
 # ==========================
-# TAB 2
+# DATABASE
 # ==========================
 
 with tab2:
@@ -306,7 +348,7 @@ with tab2:
         st.warning("Only Admin can delete records")
 
 # ==========================
-# TAB 3
+# ANALYTICS
 # ==========================
 
 with tab3:
