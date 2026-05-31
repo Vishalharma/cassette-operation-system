@@ -1,244 +1,214 @@
 import streamlit as st
 import pandas as pd
+import sqlite3
 import os
-import hashlib
 from datetime import datetime
+import matplotlib.pyplot as plt
+
+# ==========================
+# CONFIG
+# ==========================
 
 st.set_page_config(page_title="Cassette Operation System", layout="wide")
 
-DATA_FILE = "cassette_data.csv"
-USER_FILE = "users.csv"
-LOG_FILE = "login_history.csv"
+# ✅ FIX: __file__ correct usage
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(BASE_DIR, "cassette.db")
 
-# ---------------- INIT FILES ----------------
+# ==========================
+# DB CONNECTION
+# ==========================
 
-def init_file(file, columns):
-    if not os.path.exists(file):
-        pd.DataFrame(columns=columns).to_csv(file, index=False)
+def get_conn():
+    return sqlite3.connect(DB, check_same_thread=False)
 
-init_file(DATA_FILE, [
-    "Date","cassette_id","bms_version","voltage","current",
-    "temperature","soc","soh","cycle_count","fault_code",
-    "location","remarks"
-])
+# ==========================
+# INIT DB
+# ==========================
 
-init_file(USER_FILE, ["username","password","role","status"])
-init_file(LOG_FILE, ["username","time","status"])
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
 
-# Default admin
-users = pd.read_csv(USER_FILE)
-if not ((users["username"] == "admin").any()):
-    admin = pd.DataFrame([{
-        "username": "admin",
-        "password": hashlib.sha256("admin123".encode()).hexdigest(),
-        "role": "Admin",
-        "status": "Active"
-    }])
-    users = pd.concat([users, admin], ignore_index=True)
-    users.to_csv(USER_FILE, index=False)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS cassette (
+        Date TEXT,
+        "Battery Cassette ID" TEXT PRIMARY KEY,
+        "BMS Software Version" TEXT,
+        Voltage TEXT,
+        Current TEXT,
+        Temperature TEXT,
+        "SOC %" TEXT,
+        "SOH %" TEXT,
+        "Cycle Count" TEXT,
+        "Distance Covered Km" TEXT,
+        "Issue-Free Km" TEXT,
+        "Root Cause" TEXT,
+        "Issue Status" TEXT,
+        "Overall Status" TEXT,
+        "Fault Code" TEXT,
+        "Battery Health" TEXT,
+        "Over Heating" TEXT,
+        "Cell Imbalance" TEXT,
+        "Connector Issue" TEXT,
+        "Charging Issue" TEXT,
+        "Discharging Issue" TEXT,
+        Remarks TEXT,
+        "Application Area" TEXT,
+        "Current Location" TEXT
+    )
+    """)
 
-# ---------------- SESSION ----------------
+    conn.commit()
+    conn.close()
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "role" not in st.session_state:
-    st.session_state.role = ""
+init_db()
 
-# ---------------- LOGIN ----------------
+# ==========================
+# COLUMNS
+# ==========================
 
-if not st.session_state.logged_in:
+columns = [
+    "Date","Battery Cassette ID","BMS Software Version","Voltage","Current",
+    "Temperature","SOC %","SOH %","Cycle Count","Distance Covered Km",
+    "Issue-Free Km","Root Cause","Issue Status","Overall Status","Fault Code",
+    "Battery Health","Over Heating","Cell Imbalance","Connector Issue",
+    "Charging Issue","Discharging Issue","Remarks","Application Area",
+    "Current Location"
+]
 
-    st.title("🔐 Login - Cassette System")
+# ==========================
+# DB FUNCTIONS
+# ==========================
 
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+def load_data():
+    conn = get_conn()
+    df = pd.read_sql_query("SELECT * FROM cassette", conn)
+    conn.close()
+    return df
 
-    if st.button("Login"):
 
-        users = pd.read_csv(USER_FILE)
+def save_record(data):
+    conn = get_conn()
+    cur = conn.cursor()
 
-        hashed = hashlib.sha256(password.encode()).hexdigest()
+    cols = ", ".join([f'"{c}"' for c in columns])
+    placeholders = ", ".join(["?"] * len(columns))
+    values = tuple(data.get(c, "") for c in columns)
 
-        user = users[
-            (users["username"] == username) &
-            (users["password"] == hashed) &
-            (users["status"] == "Active")
-        ]
+    cur.execute(f"""
+    INSERT OR REPLACE INTO cassette ({cols})
+    VALUES ({placeholders})
+    """, values)
 
-        status = "Success" if not user.empty else "Failed"
+    conn.commit()
+    conn.close()
 
-        logs = pd.read_csv(LOG_FILE)
-        logs = pd.concat([logs, pd.DataFrame([{
-            "username": username,
-            "time": str(datetime.now()),
-            "status": status
-        }])], ignore_index=True)
-        logs.to_csv(LOG_FILE, index=False)
 
-        if not user.empty:
-            st.session_state.logged_in = True
-            st.session_state.role = user.iloc[0]["role"]
-            st.rerun()
-        else:
-            st.error("Invalid Login")
+def delete_record(cid):
+    conn = get_conn()
+    cur = conn.cursor()
 
-    st.stop()
+    cur.execute('DELETE FROM cassette WHERE "Battery Cassette ID"=?', (cid,))
 
-# ---------------- MAIN UI ----------------
+    conn.commit()
+    conn.close()
+
+# ==========================
+# UI
+# ==========================
 
 st.title("🔋 Cassette Operation System")
 
-col1, col2 = st.columns([8,2])
+tab1, tab2, tab3 = st.tabs(["➕ Add Entry", "📊 Database", "📈 Analytics"])
 
-with col2:
-    if st.button("Logout"):
-        st.session_state.logged_in = False
-        st.session_state.role = ""
-        st.rerun()
+# ==========================
+# TAB 1 - ADD
+# ==========================
 
-tabs = st.tabs(["Add","Database","Edit","Analytics","Users"])
+with tab1:
 
-# ---------------- ADD ----------------
+    st.subheader("Add New Record")
 
-with tabs[0]:
+    with st.form("add_form"):
 
-    with st.form("add"):
+        data = {}
 
-        cid = st.text_input("Cassette ID")
-        bms = st.text_input("BMS Version")
-        voltage = st.text_input("Voltage")
-        current = st.text_input("Current")
-        temp = st.text_input("Temperature")
-        soc = st.text_input("SOC")
-        soh = st.text_input("SOH")
-        cycle = st.text_input("Cycle Count")
-        fault = st.text_input("Fault Code")
-        loc = st.text_input("Location")
-        remarks = st.text_input("Remarks")
+        c1, c2 = st.columns(2)
 
-        if st.form_submit_button("Save"):
+        for i, f in enumerate(columns):
 
-            df = pd.read_csv(DATA_FILE)
+            target = c1 if i % 2 == 0 else c2
 
-            df = pd.concat([df, pd.DataFrame([{
-                "Date": str(datetime.now().date()),
-                "cassette_id": cid,
-                "bms_version": bms,
-                "voltage": voltage,
-                "current": current,
-                "temperature": temp,
-                "soc": soc,
-                "soh": soh,
-                "cycle_count": cycle,
-                "fault_code": fault,
-                "location": loc,
-                "remarks": remarks
-            }])], ignore_index=True)
+            with target:
 
-            df.to_csv(DATA_FILE, index=False)
-            st.success("Saved")
+                if f == "Date":
+                    data[f] = st.text_input(f, value=str(datetime.now().date()))
+                else:
+                    data[f] = st.text_input(f)
 
-# ---------------- DATABASE ----------------
+        submit = st.form_submit_button("Save")
 
-with tabs[1]:
+        if submit:
 
-    df = pd.read_csv(DATA_FILE)
+            if data["Battery Cassette ID"].strip() == "":
+                st.error("Battery Cassette ID required")
+            else:
+                save_record(data)
+                st.success("Record saved successfully")
+                st.rerun()
 
-    search = st.text_input("Search Cassette")
+# ==========================
+# TAB 2 - DATABASE
+# ==========================
 
-    if search:
-        df = df[df["cassette_id"].astype(str).str.contains(search, na=False)]
+with tab2:
+
+    st.subheader("All Records")
+
+    df = load_data()
 
     st.dataframe(df, use_container_width=True)
 
-    st.download_button(
-        "Export CSV",
-        df.to_csv(index=False).encode(),
-        "cassette.csv",
-        "text/csv"
-    )
-
     if not df.empty:
-        sel = st.selectbox("Select", df["cassette_id"])
-        st.write(df[df["cassette_id"] == sel])
+
+        st.markdown("### Delete Record")
+
+        cid = st.selectbox(
+            "Select Cassette ID",
+            df["Battery Cassette ID"].astype(str)
+        )
 
         if st.button("Delete"):
-            df = df[df["cassette_id"] != sel]
-            df.to_csv(DATA_FILE, index=False)
-            st.success("Deleted")
+
+            delete_record(cid)
+
+            st.success("Deleted successfully")
             st.rerun()
 
-# ---------------- EDIT ----------------
+# ==========================
+# TAB 3 - ANALYTICS
+# ==========================
 
-with tabs[2]:
+with tab3:
 
-    df = pd.read_csv(DATA_FILE)
+    st.subheader("Analytics Dashboard")
 
-    if not df.empty:
+    df = load_data()
 
-        sel = st.selectbox("Edit Cassette", df["cassette_id"])
-        row = df[df["cassette_id"] == sel].iloc[0]
-
-        voltage = st.text_input("Voltage", row["voltage"])
-        current = st.text_input("Current", row["current"])
-
-        if st.button("Update"):
-
-            idx = df[df["cassette_id"] == sel].index[0]
-
-            df.loc[idx, "voltage"] = voltage
-            df.loc[idx, "current"] = current
-
-            df.to_csv(DATA_FILE, index=False)
-            st.success("Updated")
-
-# ---------------- ANALYTICS ----------------
-
-with tabs[3]:
-
-    df = pd.read_csv(DATA_FILE)
-
-    st.metric("Total Records", len(df))
-
-    if not df.empty:
-
-        st.subheader("Fault Code Distribution")
-
-        st.bar_chart(df["fault_code"].astype(str).value_counts())
-
-# ---------------- USERS ----------------
-
-with tabs[4]:
-
-    if st.session_state.role == "Admin":
-
-        st.subheader("User Management")
-
-        uname = st.text_input("Username")
-        upass = st.text_input("Password", type="password")
-
-        role = st.selectbox("Role", ["Admin","Engineer","Operator","Viewer"])
-        status = st.selectbox("Status", ["Active","Inactive"])
-
-        if st.button("Add User"):
-
-            users = pd.read_csv(USER_FILE)
-
-            users = pd.concat([users, pd.DataFrame([{
-                "username": uname,
-                "password": hashlib.sha256(upass.encode()).hexdigest(),
-                "role": role,
-                "status": status
-            }])], ignore_index=True)
-
-            users.to_csv(USER_FILE, index=False)
-            st.success("User Added")
-
-        st.subheader("Users")
-        st.dataframe(pd.read_csv(USER_FILE), use_container_width=True)
-
-        st.subheader("Login History")
-        st.dataframe(pd.read_csv(LOG_FILE), use_container_width=True)
-
+    if df.empty:
+        st.warning("No data available")
     else:
-        st.warning("Admin only")
+
+        col = st.selectbox("Select Parameter", df.columns)
+
+        counts = df[col].astype(str).value_counts()
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.bar(counts.index, counts.values)
+
+        plt.xticks(rotation=45)
+
+        st.pyplot(fig)
+
+        st.metric("Total Records", len(df))
