@@ -6,13 +6,6 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 # ==========================
-# SAFE DB PATH (IMPORTANT)
-# ==========================
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE_DIR, "cassette.db")
-
-# ==========================
 # APP CONFIG
 # ==========================
 
@@ -22,7 +15,14 @@ st.set_page_config(
 )
 
 # ==========================
-# DATABASE COLUMNS
+# DB PATH (SAFE)
+# ==========================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(BASE_DIR, "cassette.db")
+
+# ==========================
+# TABLE COLUMNS
 # ==========================
 
 columns = [
@@ -53,20 +53,17 @@ columns = [
 ]
 
 # ==========================
-# DB CONNECTION
+# INIT DATABASE (FIXED SAFE)
 # ==========================
 
-def get_conn():
-    return sqlite3.connect(DB)
-
 def init_db():
-    conn = get_conn()
+    conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS cassette (
         Date TEXT,
-        "Battery Cassette ID" TEXT,
+        "Battery Cassette ID" TEXT PRIMARY KEY,
         "BMS Software Version" TEXT,
         Voltage TEXT,
         Current TEXT,
@@ -102,32 +99,83 @@ init_db()
 # ==========================
 
 def load_data():
-    conn = get_conn()
+    conn = sqlite3.connect(DB)
     df = pd.read_sql_query("SELECT * FROM cassette", conn)
     conn.close()
     return df
 
 # ==========================
-# SAVE DATA
+# SAVE RECORD (FIXED - NO ERROR)
 # ==========================
 
 def save_record(data):
-    conn = get_conn()
+    conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
     cursor.execute("""
-    INSERT INTO cassette VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """, tuple(data.values()))
+    INSERT OR REPLACE INTO cassette (
+        Date,
+        "Battery Cassette ID",
+        "BMS Software Version",
+        Voltage,
+        Current,
+        Temperature,
+        "SOC %",
+        "SOH %",
+        "Cycle Count",
+        "Distance Covered Km",
+        "Issue-Free Km",
+        "Root Cause",
+        "Issue Status",
+        "Overall Status",
+        "Fault Code",
+        "Battery Health",
+        "Over Heating",
+        "Cell Imbalance",
+        "Connector Issue",
+        "Charging Issue",
+        "Discharging Issue",
+        Remarks,
+        "Application Area",
+        "Current Location"
+    )
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        data["Date"],
+        data["Battery Cassette ID"],
+        data["BMS Software Version"],
+        data["Voltage"],
+        data["Current"],
+        data["Temperature"],
+        data["SOC %"],
+        data["SOH %"],
+        data["Cycle Count"],
+        data["Distance Covered Km"],
+        data["Issue-Free Km"],
+        data["Root Cause"],
+        data["Issue Status"],
+        data["Overall Status"],
+        data["Fault Code"],
+        data["Battery Health"],
+        data["Over Heating"],
+        data["Cell Imbalance"],
+        data["Connector Issue"],
+        data["Charging Issue"],
+        data["Discharging Issue"],
+        data["Remarks"],
+        data["Application Area"],
+        data["Current Location"]
+    ))
 
     conn.commit()
     conn.close()
 
 # ==========================
-# DELETE DATA
+# DELETE RECORD
 # ==========================
 
 def delete_record(cid):
-    conn = get_conn()
+    conn = sqlite3.connect(DB)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -138,19 +186,15 @@ def delete_record(cid):
     conn.close()
 
 # ==========================
-# UI TITLE
+# UI
 # ==========================
 
 st.title("🔋 Cassette Operation System")
 
-# ==========================
-# TABS
-# ==========================
-
 tab1, tab2, tab3 = st.tabs(["➕ Add Entry", "📊 Database", "📈 Analytics"])
 
 # ==========================
-# TAB 1 - ADD ENTRY
+# TAB 1
 # ==========================
 
 with tab1:
@@ -183,7 +227,6 @@ with tab1:
         submit = st.form_submit_button("💾 Save Record")
 
         if submit:
-
             if data["Battery Cassette ID"].strip() == "":
                 st.error("Battery Cassette ID Required")
             else:
@@ -191,12 +234,10 @@ with tab1:
                 st.success("Saved Successfully")
 
 # ==========================
-# TAB 2 - DATABASE
+# TAB 2
 # ==========================
 
 with tab2:
-
-    st.subheader("Database Records")
 
     df = load_data()
 
@@ -226,7 +267,7 @@ with tab2:
             st.rerun()
 
 # ==========================
-# TAB 3 - ANALYTICS
+# TAB 3
 # ==========================
 
 with tab3:
@@ -242,7 +283,6 @@ with tab3:
         counts = df[col].astype(str).value_counts()
 
         fig, ax = plt.subplots(figsize=(10, 5))
-
         ax.bar(counts.index, counts.values, color="#00BFFF")
 
         plt.xticks(rotation=45)
