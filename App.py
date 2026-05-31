@@ -115,7 +115,7 @@ def init_db():
 init_db()
 
 # ==========================
-# AUTH
+# AUTH FUNCTION
 # ==========================
 
 def login_user(username, password):
@@ -153,13 +153,13 @@ def save_record(data):
     conn.commit()
     conn.close()
 
-def delete_record(cassette_id):
+def delete_record(cid):
     conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("""
     DELETE FROM cassette WHERE "Battery Cassette ID"=?
-    """, (cassette_id,))
+    """, (cid,))
 
     conn.commit()
     conn.close()
@@ -232,7 +232,7 @@ st.success(f"Logged in as {st.session_state.username} ({st.session_state.role})"
 tab1, tab2, tab3 = st.tabs(["Add Entry", "Database", "Analytics"])
 
 # ==========================
-# TAB 1 - ADD ENTRY
+# TAB 1
 # ==========================
 
 with tab1:
@@ -273,7 +273,7 @@ with tab1:
                 st.success("Saved Successfully")
 
 # ==========================
-# TAB 2 - DATABASE
+# TAB 2
 # ==========================
 
 with tab2:
@@ -306,7 +306,7 @@ with tab2:
         st.warning("Only Admin can delete records")
 
 # ==========================
-# TAB 3 - ANALYTICS
+# TAB 3
 # ==========================
 
 with tab3:
@@ -326,4 +326,4 @@ with tab3:
 
         st.pyplot(fig)
 
-        st.write("Total Records:", len(df))Records:", len(df))
+        st.write("Total Records:", len(df))
