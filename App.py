@@ -25,7 +25,7 @@ if "username" not in st.session_state:
     st.session_state.username = None
 
 # ==========================
-# DB CONNECTION
+# DB
 # ==========================
 
 def get_conn():
@@ -101,7 +101,7 @@ def authenticate(u, p):
     return r[0] if r else None
 
 # ==========================
-# USER FUNCTIONS
+# USER OPS
 # ==========================
 
 def get_users():
@@ -109,20 +109,6 @@ def get_users():
     df = pd.read_sql_query("SELECT username, role FROM users", conn)
     conn.close()
     return df
-
-
-def update_user(old_u, new_u, new_p, new_r):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-    UPDATE users
-    SET username=?, password=?, role=?
-    WHERE username=?
-    """, (new_u, new_p, new_r, old_u))
-
-    conn.commit()
-    conn.close()
 
 
 def add_user(u, p, r):
@@ -140,6 +126,20 @@ def delete_user(u):
     cur = conn.cursor()
 
     cur.execute("DELETE FROM users WHERE username=?", (u,))
+
+    conn.commit()
+    conn.close()
+
+
+def update_user(old_u, new_u, new_p, new_r):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    UPDATE users
+    SET username=?, password=?, role=?
+    WHERE username=?
+    """, (new_u, new_p, new_r, old_u))
 
     conn.commit()
     conn.close()
@@ -163,7 +163,7 @@ def login():
             st.session_state.username = u
             st.rerun()
         else:
-            st.error("Invalid login")
+            st.error("Invalid credentials")
 
 # ==========================
 # LOGOUT
@@ -175,7 +175,7 @@ def logout():
         st.rerun()
 
 # ==========================
-# BLOCK LOGIN
+# BLOCK IF NOT LOGGED IN
 # ==========================
 
 if not st.session_state.logged_in:
@@ -209,34 +209,31 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ==========================
 
 with tab1:
-
     st.subheader("Add Entry")
 
     if st.session_state.role != "admin":
         st.warning("Only admin can add data")
     else:
-        st.info("Add cassette data here")
+        st.info("Add functionality here")
 
 # ==========================
 # TAB 2
 # ==========================
 
 with tab2:
-
-    st.subheader("Database View")
-    st.info("Your cassette data will show here")
+    st.subheader("Database")
+    st.info("Show cassette data here")
 
 # ==========================
 # TAB 3
 # ==========================
 
 with tab3:
-
     st.subheader("Analytics")
     st.info("Charts here")
 
 # ==========================
-# TAB 4 - USER MANAGEMENT (FIXED)
+# TAB 4 - USER MANAGEMENT (FIXED EDIT)
 # ==========================
 
 with tab4:
@@ -245,12 +242,13 @@ with tab4:
 
     if st.session_state.role != "admin":
         st.warning("Only admin allowed")
+
     else:
 
-        # ================= CREATE USER =================
+        # CREATE USER
         st.markdown("### ➕ Create User")
 
-        with st.form("create_user"):
+        with st.form("create"):
             cu = st.text_input("Username")
             cp = st.text_input("Password")
             cr = st.selectbox("Role", ["admin", "user"])
@@ -260,27 +258,33 @@ with tab4:
                 st.success("User created")
                 st.rerun()
 
-        # ================= VIEW USERS =================
+        # VIEW USERS
         st.markdown("### 📋 Users")
         users = get_users()
         st.dataframe(users, use_container_width=True)
 
-        # ================= EDIT USER (FIXED SAFE) =================
+        # ==========================
+        # FIXED EDIT USER (STABLE)
+        # ==========================
         st.markdown("### ✏️ Edit User")
 
         if not users.empty:
 
-            selected_user = st.selectbox(
+            selected = st.selectbox(
                 "Select User",
                 users["username"].tolist(),
-                key="edit_user"
+                key="edit_user_box"
             )
 
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("SELECT username,password,role FROM users WHERE username=?", (selected_user,))
-            udata = cur.fetchone()
-            conn.close()
+            def fetch_user(u):
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute("SELECT username,password,role FROM users WHERE username=?", (u,))
+                data = cur.fetchone()
+                conn.close()
+                return data
+
+            udata = fetch_user(selected)
 
             if udata:
 
@@ -295,11 +299,11 @@ with tab4:
                     )
 
                     if st.form_submit_button("Update"):
-                        update_user(selected_user, nu, np, nr)
-                        st.success("Updated successfully")
+                        update_user(selected, nu, np, nr)
+                        st.success("User updated")
                         st.rerun()
 
-        # ================= DELETE USER =================
+        # DELETE USER
         st.markdown("### 🗑 Delete User")
 
         del_list = users["username"].tolist()
@@ -307,14 +311,14 @@ with tab4:
             del_list.remove("admin")
 
         if del_list:
-            du = st.selectbox("Select User", del_list, key="del_user")
+            du = st.selectbox("Delete User", del_list, key="del_user")
 
-            if st.button("Delete User"):
+            if st.button("Delete"):
                 delete_user(du)
                 st.success("Deleted")
                 st.rerun()
 
-        # ================= PASSWORD CHANGE =================
+        # PASSWORD CHANGE
         st.markdown("### 🔐 Change My Password")
 
         with st.form("pass_change"):
@@ -335,6 +339,6 @@ with tab4:
                     conn.commit()
                     st.success("Password updated")
                 else:
-                    st.error("Wrong current password")
+                    st.error("Wrong password")
 
                 conn.close()
