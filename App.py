@@ -14,18 +14,7 @@ st.set_page_config(page_title="Cassette Operation System", layout="wide")
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cassette.db")
 
 # ==========================
-# SESSION STATE
-# ==========================
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "role" not in st.session_state:
-    st.session_state.role = None
-if "username" not in st.session_state:
-    st.session_state.username = None
-
-# ==========================
-# DB
+# DB CONNECTION
 # ==========================
 
 def get_conn():
@@ -38,14 +27,6 @@ def get_conn():
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
-        password TEXT,
-        role TEXT
-    )
-    """)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cassette (
@@ -76,269 +57,148 @@ def init_db():
     )
     """)
 
-    # default admin
-    cur.execute("SELECT COUNT(*) FROM users WHERE username='admin'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users VALUES ('admin','admin123','admin')")
-
     conn.commit()
     conn.close()
 
 init_db()
 
 # ==========================
-# AUTH
+# DATA COLUMNS
 # ==========================
 
-def authenticate(u, p):
+columns = [
+    "Date","Battery Cassette ID","BMS Software Version","Voltage","Current",
+    "Temperature","SOC %","SOH %","Cycle Count","Distance Covered Km",
+    "Issue-Free Km","Root Cause","Issue Status","Overall Status","Fault Code",
+    "Battery Health","Over Heating","Cell Imbalance","Connector Issue",
+    "Charging Issue","Discharging Issue","Remarks","Application Area",
+    "Current Location"
+]
+
+# ==========================
+# DB FUNCTIONS
+# ==========================
+
+def load_data():
     conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("SELECT role FROM users WHERE username=? AND password=?", (u, p))
-    r = cur.fetchone()
-
-    conn.close()
-    return r[0] if r else None
-
-# ==========================
-# USER OPS
-# ==========================
-
-def get_users():
-    conn = get_conn()
-    df = pd.read_sql_query("SELECT username, role FROM users", conn)
+    df = pd.read_sql_query("SELECT * FROM cassette", conn)
     conn.close()
     return df
 
 
-def add_user(u, p, r):
+def save_record(data):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("INSERT OR REPLACE INTO users VALUES (?,?,?)", (u, p, r))
+    cols = ", ".join([f'"{c}"' for c in columns])
+    placeholders = ", ".join(["?"] * len(columns))
+    values = tuple(data.get(c, "") for c in columns)
+
+    cur.execute(f"""
+    INSERT OR REPLACE INTO cassette ({cols})
+    VALUES ({placeholders})
+    """, values)
 
     conn.commit()
     conn.close()
 
 
-def delete_user(u):
+def delete_record(cid):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("DELETE FROM users WHERE username=?", (u,))
-
-    conn.commit()
-    conn.close()
-
-
-def update_user(old_u, new_u, new_p, new_r):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-    UPDATE users
-    SET username=?, password=?, role=?
-    WHERE username=?
-    """, (new_u, new_p, new_r, old_u))
-
+    cur.execute('DELETE FROM cassette WHERE "Battery Cassette ID"=?', (cid,))
     conn.commit()
     conn.close()
 
 # ==========================
-# LOGIN
-# ==========================
-
-def login():
-    st.title("🔐 Login")
-
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        role = authenticate(u, p)
-
-        if role:
-            st.session_state.logged_in = True
-            st.session_state.role = role
-            st.session_state.username = u
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
-
-# ==========================
-# LOGOUT
-# ==========================
-
-def logout():
-    if st.sidebar.button("Logout"):
-        st.session_state.logged_in = False
-        st.rerun()
-
-# ==========================
-# BLOCK IF NOT LOGGED IN
-# ==========================
-
-if not st.session_state.logged_in:
-    login()
-    st.stop()
-
-# ==========================
-# UI HEADER
+# UI
 # ==========================
 
 st.title("🔋 Cassette Operation System")
 
-st.sidebar.write("👤", st.session_state.username)
-st.sidebar.write("🔐", st.session_state.role)
-
-logout()
-
-# ==========================
-# TABS
-# ==========================
-
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "➕ Add Entry",
     "📊 Database",
-    "📈 Analytics",
-    "👥 User Management"
+    "📈 Analytics"
 ])
 
 # ==========================
-# TAB 1
+# TAB 1 - ADD DATA
 # ==========================
 
 with tab1:
-    st.subheader("Add Entry")
 
-    if st.session_state.role != "admin":
-        st.warning("Only admin can add data")
-    else:
-        st.info("Add functionality here")
+    st.subheader("➕ Add New Record")
+
+    with st.form("add_form"):
+
+        data = {}
+        c1, c2 = st.columns(2)
+
+        for i, f in enumerate(columns):
+
+            target = c1 if i % 2 == 0 else c2
+
+            with target:
+                if f == "Date":
+                    data[f] = st.text_input(f, value=str(datetime.now().date()))
+                else:
+                    data[f] = st.text_input(f)
+
+        submit = st.form_submit_button("💾 Save Record")
+
+        if submit:
+            if data["Battery Cassette ID"].strip() == "":
+                st.error("Battery Cassette ID is required")
+            else:
+                save_record(data)
+                st.success("Record saved successfully")
 
 # ==========================
-# TAB 2
+# TAB 2 - DATABASE VIEW
 # ==========================
 
 with tab2:
-    st.subheader("Database")
-    st.info("Show cassette data here")
+
+    st.subheader("📊 All Records")
+
+    df = load_data()
+    st.dataframe(df, use_container_width=True)
+
+    if not df.empty:
+
+        st.markdown("### 🗑 Delete Record")
+
+        cid = st.selectbox("Select Cassette ID", df["Battery Cassette ID"].astype(str))
+
+        if st.button("Delete"):
+            delete_record(cid)
+            st.success("Record deleted")
+            st.rerun()
 
 # ==========================
-# TAB 3
+# TAB 3 - ANALYTICS
 # ==========================
 
 with tab3:
-    st.subheader("Analytics")
-    st.info("Charts here")
 
-# ==========================
-# TAB 4 - USER MANAGEMENT (FIXED EDIT)
-# ==========================
+    st.subheader("📈 Analytics Dashboard")
 
-with tab4:
+    df = load_data()
 
-    st.subheader("👥 User Management")
-
-    if st.session_state.role != "admin":
-        st.warning("Only admin allowed")
-
+    if df.empty:
+        st.warning("No data available")
     else:
+        col = st.selectbox("Select Parameter", df.columns)
 
-        # CREATE USER
-        st.markdown("### ➕ Create User")
+        counts = df[col].astype(str).value_counts()
 
-        with st.form("create"):
-            cu = st.text_input("Username")
-            cp = st.text_input("Password")
-            cr = st.selectbox("Role", ["admin", "user"])
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.bar(counts.index, counts.values, color="#00BFFF")
 
-            if st.form_submit_button("Create"):
-                add_user(cu, cp, cr)
-                st.success("User created")
-                st.rerun()
+        plt.xticks(rotation=45)
 
-        # VIEW USERS
-        st.markdown("### 📋 Users")
-        users = get_users()
-        st.dataframe(users, use_container_width=True)
+        st.pyplot(fig)
 
-        # ==========================
-        # FIXED EDIT USER (STABLE)
-        # ==========================
-        st.markdown("### ✏️ Edit User")
-
-        if not users.empty:
-
-            selected = st.selectbox(
-                "Select User",
-                users["username"].tolist(),
-                key="edit_user_box"
-            )
-
-            def fetch_user(u):
-                conn = get_conn()
-                cur = conn.cursor()
-                cur.execute("SELECT username,password,role FROM users WHERE username=?", (u,))
-                data = cur.fetchone()
-                conn.close()
-                return data
-
-            udata = fetch_user(selected)
-
-            if udata:
-
-                with st.form("edit_form"):
-
-                    nu = st.text_input("Username", value=udata[0])
-                    np = st.text_input("Password", value=udata[1])
-                    nr = st.selectbox(
-                        "Role",
-                        ["admin", "user"],
-                        index=0 if udata[2] == "admin" else 1
-                    )
-
-                    if st.form_submit_button("Update"):
-                        update_user(selected, nu, np, nr)
-                        st.success("User updated")
-                        st.rerun()
-
-        # DELETE USER
-        st.markdown("### 🗑 Delete User")
-
-        del_list = users["username"].tolist()
-        if "admin" in del_list:
-            del_list.remove("admin")
-
-        if del_list:
-            du = st.selectbox("Delete User", del_list, key="del_user")
-
-            if st.button("Delete"):
-                delete_user(du)
-                st.success("Deleted")
-                st.rerun()
-
-        # PASSWORD CHANGE
-        st.markdown("### 🔐 Change My Password")
-
-        with st.form("pass_change"):
-            cur_p = st.text_input("Current Password", type="password")
-            new_p = st.text_input("New Password", type="password")
-
-            if st.form_submit_button("Update Password"):
-
-                conn = get_conn()
-                cur = conn.cursor()
-
-                cur.execute("SELECT password FROM users WHERE username=?", (st.session_state.username,))
-                real = cur.fetchone()[0]
-
-                if cur_p == real:
-                    cur.execute("UPDATE users SET password=? WHERE username=?",
-                                (new_p, st.session_state.username))
-                    conn.commit()
-                    st.success("Password updated")
-                else:
-                    st.error("Wrong password")
-
-                conn.close()
+        st.write("Total Records:", len(df))
