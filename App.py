@@ -43,7 +43,7 @@ columns = [
 ]
 
 # ==========================
-# DB CONNECTION
+# DB
 # ==========================
 
 def get_conn():
@@ -53,7 +53,6 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
 
-    # Cassette Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS cassette (
         Date TEXT,
@@ -83,7 +82,6 @@ def init_db():
     )
     """)
 
-    # Users Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +92,6 @@ def init_db():
     )
     """)
 
-    # Login history
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS login_history(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,7 +100,6 @@ def init_db():
     )
     """)
 
-    # Default admin
     cursor.execute("""
     INSERT OR IGNORE INTO users(username,password,role,active)
     VALUES ('admin','admin123','Admin',1)
@@ -115,7 +111,7 @@ def init_db():
 init_db()
 
 # ==========================
-# AUTH FUNCTIONS
+# AUTH
 # ==========================
 
 def login_user(username, password):
@@ -151,7 +147,7 @@ def signup_user(username, password):
         conn.close()
 
 # ==========================
-# DATA FUNCTIONS
+# DATA
 # ==========================
 
 def load_data():
@@ -184,8 +180,74 @@ def delete_record(cid):
     conn.commit()
     conn.close()
 
+
 # ==========================
-# SESSION INIT
+# UPDATE (ADMIN EDIT)
+# ==========================
+
+def update_record(cassette_id, data):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    UPDATE cassette SET
+        Date=?,
+        "BMS Software Version"=?,
+        Voltage=?,
+        Current=?,
+        Temperature=?,
+        "SOC %"=?,
+        "SOH %"=?,
+        "Cycle Count"=?,
+        "Distance Covered Km"=?,
+        "Issue-Free Km"=?,
+        "Root Cause"=?,
+        "Issue Status"=?,
+        "Overall Status"=?,
+        "Fault Code"=?,
+        "Battery Health"=?,
+        "Over Heating"=?,
+        "Cell Imbalance"=?,
+        "Connector Issue"=?,
+        "Charging Issue"=?,
+        "Discharging Issue"=?,
+        Remarks=?,
+        "Application Area"=?,
+        "Current Location"=?
+    WHERE "Battery Cassette ID"=?
+    """, (
+        data["Date"],
+        data["BMS Software Version"],
+        data["Voltage"],
+        data["Current"],
+        data["Temperature"],
+        data["SOC %"],
+        data["SOH %"],
+        data["Cycle Count"],
+        data["Distance Covered Km"],
+        data["Issue-Free Km"],
+        data["Root Cause"],
+        data["Issue Status"],
+        data["Overall Status"],
+        data["Fault Code"],
+        data["Battery Health"],
+        data["Over Heating"],
+        data["Cell Imbalance"],
+        data["Connector Issue"],
+        data["Charging Issue"],
+        data["Discharging Issue"],
+        data["Remarks"],
+        data["Application Area"],
+        data["Current Location"],
+        cassette_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# ==========================
+# SESSION
 # ==========================
 
 if "logged_in" not in st.session_state:
@@ -201,21 +263,16 @@ if not st.session_state.logged_in:
 
     tab1, tab2 = st.tabs(["Login", "Signup"])
 
-    # LOGIN
     with tab1:
 
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
 
         if st.button("Login"):
 
-            user = login_user(username, password)
+            user = login_user(u, p)
 
             if user:
-
-                if user[2] == 0:
-                    st.error("User inactive")
-                    st.stop()
 
                 st.session_state.logged_in = True
                 st.session_state.username = user[0]
@@ -223,12 +280,10 @@ if not st.session_state.logged_in:
 
                 conn = get_conn()
                 cursor = conn.cursor()
-
                 cursor.execute("""
                 INSERT INTO login_history(username, login_time)
                 VALUES (?,?)
-                """, (user[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-
+                """, (u, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                 conn.commit()
                 conn.close()
 
@@ -237,18 +292,17 @@ if not st.session_state.logged_in:
             else:
                 st.error("Invalid login")
 
-    # SIGNUP
     with tab2:
 
-        new_user = st.text_input("Create Username")
-        new_pass = st.text_input("Create Password", type="password")
+        nu = st.text_input("New Username")
+        np = st.text_input("New Password", type="password")
 
         if st.button("Signup"):
 
-            if signup_user(new_user, new_pass):
-                st.success("Account created! Now login")
+            if signup_user(nu, np):
+                st.success("Account Created")
             else:
-                st.error("Username already exists")
+                st.error("Username exists")
 
     st.stop()
 
@@ -274,45 +328,40 @@ st.success(f"Logged in as {st.session_state.username} ({st.session_state.role})"
 tab1, tab2, tab3 = st.tabs(["Add Entry", "Database", "Analytics"])
 
 # ==========================
-# ADD ENTRY
+# ADD
 # ==========================
 
 with tab1:
 
-    st.subheader("Add Record")
-
     with st.form("form"):
 
         data = {}
+        c1, c2 = st.columns(2)
 
-        col1, col2 = st.columns(2)
+        for i, f in enumerate(columns):
 
-        for i, field in enumerate(columns):
-
-            target = col1 if i % 2 == 0 else col2
+            target = c1 if i % 2 == 0 else c2
 
             with target:
 
-                if field == "Date":
-                    data[field] = st.text_input(field, value=datetime.now().strftime("%d-%m-%Y"))
+                if f == "Date":
+                    data[f] = st.text_input(f, value=datetime.now().strftime("%d-%m-%Y"))
 
-                elif field == "Issue Status":
-                    data[field] = st.selectbox(field, ["GREEN","YELLOW","RED","WHITE"])
+                elif f == "Issue Status":
+                    data[f] = st.selectbox(f, ["GREEN","YELLOW","RED","WHITE"])
 
-                elif field == "Battery Health":
-                    data[field] = st.selectbox(field, ["GOOD","AVERAGE","CRITICAL"])
+                elif f == "Battery Health":
+                    data[f] = st.selectbox(f, ["GOOD","AVERAGE","CRITICAL"])
 
                 else:
-                    data[field] = st.text_input(field)
+                    data[f] = st.text_input(f)
 
-        submit = st.form_submit_button("Save")
-
-        if submit:
+        if st.form_submit_button("Save"):
             if data["Battery Cassette ID"] == "":
-                st.error("Cassette ID required")
+                st.error("ID required")
             else:
                 save_record(data)
-                st.success("Saved Successfully")
+                st.success("Saved")
 
 # ==========================
 # DATABASE
@@ -331,21 +380,51 @@ with tab2:
 
     st.download_button("Download CSV", df.to_csv(index=False), "data.csv", "text/csv")
 
-    st.subheader("Delete Record")
+    # DELETE
+    if st.session_state.role == "Admin" and len(df) > 0:
 
-    if st.session_state.role == "Admin":
+        cid = st.selectbox("Select ID", df["Battery Cassette ID"].astype(str).unique())
 
-        if len(df) > 0:
+        if st.button("Delete"):
+            delete_record(cid)
+            st.rerun()
 
-            cid = st.selectbox("Select ID", df["Battery Cassette ID"].astype(str).unique())
+    # EDIT (ADMIN)
+    if st.session_state.role == "Admin" and len(df) > 0:
 
-            if st.button("Delete"):
-                delete_record(cid)
-                st.success("Deleted")
+        st.subheader("✏️ Edit Record")
+
+        cid = st.selectbox("Select Cassette to Edit", df["Battery Cassette ID"].astype(str).unique(), key="edit")
+
+        row = df[df["Battery Cassette ID"] == cid].iloc[0]
+
+        with st.form("edit_form"):
+
+            new_data = {}
+
+            c1, c2 = st.columns(2)
+
+            for i, f in enumerate(columns):
+
+                target = c1 if i % 2 == 0 else c2
+
+                with target:
+
+                    val = row[f]
+
+                    if f == "Issue Status":
+                        new_data[f] = st.selectbox(f, ["GREEN","YELLOW","RED","WHITE"], index=["GREEN","YELLOW","RED","WHITE"].index(val))
+
+                    elif f == "Battery Health":
+                        new_data[f] = st.selectbox(f, ["GOOD","AVERAGE","CRITICAL"], index=["GOOD","AVERAGE","CRITICAL"].index(val))
+
+                    else:
+                        new_data[f] = st.text_input(f, value=str(val))
+
+            if st.form_submit_button("Update"):
+                update_record(cid, new_data)
+                st.success("Updated")
                 st.rerun()
-
-    else:
-        st.warning("Only Admin can delete records")
 
 # ==========================
 # ANALYTICS
@@ -359,7 +438,7 @@ with tab3:
         st.warning("No Data")
     else:
 
-        col = st.selectbox("Select Parameter", df.columns)
+        col = st.selectbox("Parameter", df.columns)
 
         counts = df[col].astype(str).value_counts()
 
