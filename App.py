@@ -6,20 +6,56 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 # ==========================
-# APP CONFIG
+# CONFIG
 # ==========================
 
-st.set_page_config(
-    page_title="Cassette Operation System",
-    layout="wide"
-)
-
-# ==========================
-# DB PATH
-# ==========================
+st.set_page_config(page_title="Cassette Operation System", layout="wide")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "cassette.db")
+
+# ==========================
+# SIMPLE LOGIN SYSTEM
+# ==========================
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin123"
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "role" not in st.session_state:
+    st.session_state.role = "guest"
+
+def login():
+    st.title("🔐 Login")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            st.session_state.logged_in = True
+            st.session_state.role = "admin"
+            st.success("Login successful as Admin")
+            st.rerun()
+        else:
+            st.error("Invalid credentials")
+
+if not st.session_state.logged_in:
+    login()
+    st.stop()
+
+# ==========================
+# LOGOUT BUTTON
+# ==========================
+
+st.sidebar.write(f"Logged in as: **{st.session_state.role}**")
+
+if st.sidebar.button("Logout"):
+    st.session_state.logged_in = False
+    st.session_state.role = "guest"
+    st.rerun()
 
 # ==========================
 # COLUMNS
@@ -95,7 +131,7 @@ def init_db():
 init_db()
 
 # ==========================
-# LOAD DATA
+# DB FUNCTIONS
 # ==========================
 
 def load_data():
@@ -104,9 +140,6 @@ def load_data():
     conn.close()
     return df
 
-# ==========================
-# SAVE RECORD (FIXED + SAFE)
-# ==========================
 
 def save_record(data):
     conn = sqlite3.connect(DB)
@@ -115,25 +148,16 @@ def save_record(data):
     cols = ", ".join([f'"{c}"' for c in columns])
     placeholders = ", ".join(["?"] * len(columns))
 
-    values = tuple(
-        data.get(c, "").strip() if isinstance(data.get(c, ""), str)
-        else data.get(c, "")
-        for c in columns
-    )
+    values = tuple(data.get(c, "") for c in columns)
 
-    sql = f"""
+    cursor.execute(f"""
     INSERT OR REPLACE INTO cassette ({cols})
     VALUES ({placeholders})
-    """
-
-    cursor.execute(sql, values)
+    """, values)
 
     conn.commit()
     conn.close()
 
-# ==========================
-# DELETE RECORD
-# ==========================
 
 def delete_record(cid):
     conn = sqlite3.connect(DB)
@@ -155,47 +179,51 @@ st.title("🔋 Cassette Operation System")
 tab1, tab2, tab3 = st.tabs(["➕ Add Entry", "📊 Database", "📈 Analytics"])
 
 # ==========================
-# TAB 1 - ADD
+# TAB 1 - ADD (ADMIN ONLY)
 # ==========================
 
 with tab1:
 
     st.subheader("Add New Record")
 
-    with st.form("form"):
+    if st.session_state.role != "admin":
+        st.warning("Only Admin can add or edit data.")
+    else:
 
-        data = {}
-        c1, c2 = st.columns(2)
+        with st.form("form"):
 
-        for i, f in enumerate(columns):
+            data = {}
+            c1, c2 = st.columns(2)
 
-            target = c1 if i % 2 == 0 else c2
+            for i, f in enumerate(columns):
 
-            with target:
+                target = c1 if i % 2 == 0 else c2
 
-                if f == "Date":
-                    data[f] = st.text_input(f, value=datetime.now().strftime("%d-%m-%Y"))
+                with target:
 
-                elif f == "Issue Status":
-                    data[f] = st.selectbox(f, ["GREEN", "YELLOW", "RED", "WHITE"])
+                    if f == "Date":
+                        data[f] = st.text_input(f, value=datetime.now().strftime("%d-%m-%Y"))
 
-                elif f == "Battery Health":
-                    data[f] = st.selectbox(f, ["GOOD", "AVERAGE", "CRITICAL"])
+                    elif f == "Issue Status":
+                        data[f] = st.selectbox(f, ["GREEN", "YELLOW", "RED", "WHITE"])
 
+                    elif f == "Battery Health":
+                        data[f] = st.selectbox(f, ["GOOD", "AVERAGE", "CRITICAL"])
+
+                    else:
+                        data[f] = st.text_input(f)
+
+            submit = st.form_submit_button("💾 Save Record")
+
+            if submit:
+                if data["Battery Cassette ID"].strip() == "":
+                    st.error("Battery Cassette ID Required")
                 else:
-                    data[f] = st.text_input(f)
-
-        submit = st.form_submit_button("💾 Save Record")
-
-        if submit:
-            if data["Battery Cassette ID"].strip() == "":
-                st.error("Battery Cassette ID Required")
-            else:
-                save_record(data)
-                st.success("Saved Successfully")
+                    save_record(data)
+                    st.success("Saved Successfully")
 
 # ==========================
-# TAB 2 - DATABASE
+# TAB 2 - VIEW (ALL USERS)
 # ==========================
 
 with tab2:
@@ -219,19 +247,25 @@ with tab2:
         "text/csv"
     )
 
-    st.subheader("🗑 Delete Record")
+    # DELETE ONLY ADMIN
+    if st.session_state.role == "admin":
 
-    if len(df) > 0:
+        st.subheader("🗑 Delete Record")
 
-        cid = st.selectbox(
-            "Select Cassette ID",
-            df["Battery Cassette ID"].astype(str).unique()
-        )
+        if len(df) > 0:
 
-        if st.button("Delete"):
-            delete_record(cid)
-            st.success("Deleted Successfully")
-            st.rerun()
+            cid = st.selectbox(
+                "Select Cassette ID",
+                df["Battery Cassette ID"].astype(str).unique()
+            )
+
+            if st.button("Delete"):
+                delete_record(cid)
+                st.success("Deleted Successfully")
+                st.rerun()
+
+    else:
+        st.info("Login as admin to delete records.")
 
 # ==========================
 # TAB 3 - ANALYTICS
