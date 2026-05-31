@@ -20,10 +20,8 @@ DB = os.path.join(BASE_DIR, "cassette.db")
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
 if "role" not in st.session_state:
     st.session_state.role = None
-
 if "username" not in st.session_state:
     st.session_state.username = None
 
@@ -82,13 +80,9 @@ def init_db():
     """)
 
     # default admin
-    cursor.execute("""
-    SELECT COUNT(*) FROM users WHERE username='admin'
-    """)
+    cursor.execute("SELECT COUNT(*) FROM users WHERE username='admin'")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("""
-        INSERT INTO users VALUES ('admin','admin123','admin')
-        """)
+        cursor.execute("INSERT INTO users VALUES ('admin','admin123','admin')")
 
     conn.commit()
     conn.close()
@@ -113,7 +107,7 @@ def authenticate(username, password):
     return result[0] if result else None
 
 # ==========================
-# USER MANAGEMENT
+# USER FUNCTIONS
 # ==========================
 
 def get_users():
@@ -143,8 +137,22 @@ def delete_user(username):
     conn.commit()
     conn.close()
 
+
+def update_user(old_username, new_username, password, role):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    UPDATE users
+    SET username=?, password=?, role=?
+    WHERE username=?
+    """, (new_username, password, role, old_username))
+
+    conn.commit()
+    conn.close()
+
 # ==========================
-# DATA FUNCTIONS
+# DATA
 # ==========================
 
 columns = [
@@ -184,10 +192,7 @@ def delete_record(cid):
     conn = get_conn()
     cursor = conn.cursor()
 
-    cursor.execute("""
-    DELETE FROM cassette WHERE "Battery Cassette ID"=?
-    """, (cid,))
-
+    cursor.execute('DELETE FROM cassette WHERE "Battery Cassette ID"=?', (cid,))
     conn.commit()
     conn.close()
 
@@ -195,7 +200,7 @@ def delete_record(cid):
 # LOGIN
 # ==========================
 
-def login_page():
+def login():
     st.title("🔐 Login")
 
     u = st.text_input("Username")
@@ -210,7 +215,7 @@ def login_page():
             st.session_state.username = u
             st.rerun()
         else:
-            st.error("Invalid credentials")
+            st.error("Invalid login")
 
 # ==========================
 # LOGOUT
@@ -222,11 +227,11 @@ def logout():
         st.rerun()
 
 # ==========================
-# BLOCK IF NOT LOGIN
+# LOGIN CHECK
 # ==========================
 
 if not st.session_state.logged_in:
-    login_page()
+    login()
     st.stop()
 
 # ==========================
@@ -241,7 +246,7 @@ st.sidebar.write(f"🔐 {st.session_state.role}")
 logout()
 
 # ==========================
-# 🔥 FIXED TAB DEFINITION (IMPORTANT)
+# TABS (FIXED)
 # ==========================
 
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -292,9 +297,10 @@ with tab2:
     df = load_data()
     st.dataframe(df, use_container_width=True)
 
-    if st.session_state.role == "admin":
+    if st.session_state.role == "admin" and not df.empty:
         cid = st.selectbox("Delete ID", df["Battery Cassette ID"].astype(str))
-        if st.button("Delete"):
+
+        if st.button("Delete Record"):
             delete_record(cid)
             st.success("Deleted")
             st.rerun()
@@ -308,8 +314,10 @@ with tab3:
     df = load_data()
 
     if not df.empty:
-        col = st.selectbox("Select Column", df.columns)
+        col = st.selectbox("Column", df.columns)
         st.bar_chart(df[col].value_counts())
+    else:
+        st.warning("No data")
 
 # ==========================
 # TAB 4 - USER MANAGEMENT
@@ -323,32 +331,57 @@ with tab4:
         st.warning("Only admin allowed")
     else:
 
-        st.markdown("### ➕ Add User")
+        # CREATE USER
+        st.markdown("### ➕ Create User")
 
-        with st.form("user_form"):
+        with st.form("create"):
             un = st.text_input("Username")
             pw = st.text_input("Password")
             rl = st.selectbox("Role", ["admin", "user"])
 
-            if st.form_submit_button("Create User"):
+            if st.form_submit_button("Create"):
                 add_user(un, pw, rl)
                 st.success("User created")
                 st.rerun()
 
+        # VIEW USERS
         st.markdown("### 📋 Users")
-        st.dataframe(get_users(), use_container_width=True)
+        users = get_users()
+        st.dataframe(users, use_container_width=True)
 
+        # EDIT USER
+        st.markdown("### ✏️ Edit User")
+
+        selected = st.selectbox("Select User", users["username"].tolist())
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE username=?", (selected,))
+        udata = cur.fetchone()
+        conn.close()
+
+        if udata:
+            with st.form("edit"):
+                new_u = st.text_input("Username", value=udata[0])
+                new_p = st.text_input("Password", value=udata[1])
+                new_r = st.selectbox("Role", ["admin", "user"], index=0 if udata[2]=="admin" else 1)
+
+                if st.form_submit_button("Update"):
+                    update_user(selected, new_u, new_p, new_r)
+                    st.success("Updated")
+                    st.rerun()
+
+        # DELETE USER
         st.markdown("### 🗑 Delete User")
 
-        users = get_users()["username"].tolist()
+        del_list = users["username"].tolist()
+        if "admin" in del_list:
+            del_list.remove("admin")
 
-        if "admin" in users:
-            users.remove("admin")
-
-        if users:
-            del_u = st.selectbox("Select User", users)
+        if del_list:
+            du = st.selectbox("Delete User", del_list)
 
             if st.button("Delete User"):
-                delete_user(del_u)
+                delete_user(du)
                 st.success("Deleted")
                 st.rerun()
