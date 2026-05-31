@@ -1,204 +1,183 @@
-import streamlit as st
-import pandas as pd
-import sqlite3
-import os
-from datetime import datetime
-import matplotlib.pyplot as plt
+# Users Table
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users(
+    username TEXT PRIMARY KEY,
+    password TEXT,
+    role TEXT,
+    status TEXT
+)
+""")
 
-# ==========================
-# CONFIG
-# ==========================
+# Login History
+cur.execute("""
+CREATE TABLE IF NOT EXISTS login_history(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    login_time TEXT,
+    status TEXT
+)
+""")
 
-st.set_page_config(page_title="Cassette Operation System", layout="wide")
+# Default Admin
+cur.execute("""
+INSERT OR IGNORE INTO users
+VALUES('admin','admin123','Admin','Active')
+""")
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cassette.db")
+if not st.session_state.logged_in:
 
-# ==========================
-# DB CONNECTION
-# ==========================
+    st.title("🔐 Login")
 
-def get_conn():
-    return sqlite3.connect(DB, check_same_thread=False)
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
 
-# ==========================
-# INIT DB
-# ==========================
+    if st.button("Login"):
 
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
+        conn = get_conn()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS cassette (
-        Date TEXT,
-        "Battery Cassette ID" TEXT PRIMARY KEY,
-        "BMS Software Version" TEXT,
-        Voltage TEXT,
-        Current TEXT,
-        Temperature TEXT,
-        "SOC %" TEXT,
-        "SOH %" TEXT,
-        "Cycle Count" TEXT,
-        "Distance Covered Km" TEXT,
-        "Issue-Free Km" TEXT,
-        "Root Cause" TEXT,
-        "Issue Status" TEXT,
-        "Overall Status" TEXT,
-        "Fault Code" TEXT,
-        "Battery Health" TEXT,
-        "Over Heating" TEXT,
-        "Cell Imbalance" TEXT,
-        "Connector Issue" TEXT,
-        "Charging Issue" TEXT,
-        "Discharging Issue" TEXT,
-        Remarks TEXT,
-        "Application Area" TEXT,
-        "Current Location" TEXT
-    )
-    """)
+        q = pd.read_sql_query(
+            """
+            SELECT * FROM users
+            WHERE username=?
+            AND password=?
+            AND status='Active'
+            """,
+            conn,
+            params=(user, pwd)
+        )
 
-    conn.commit()
-    conn.close()
+        if len(q):
 
-init_db()
+            st.session_state.logged_in = True
+            st.session_state.username = user
+            st.session_state.role = q.iloc[0]["role"]
 
-# ==========================
-# DATA COLUMNS
-# ==========================
+            conn.execute(
+                "INSERT INTO login_history(username,login_time,status) VALUES(?,?,?)",
+                (user, str(datetime.now()), "Success")
+            )
+            conn.commit()
 
-columns = [
-    "Date","Battery Cassette ID","BMS Software Version","Voltage","Current",
-    "Temperature","SOC %","SOH %","Cycle Count","Distance Covered Km",
-    "Issue-Free Km","Root Cause","Issue Status","Overall Status","Fault Code",
-    "Battery Health","Over Heating","Cell Imbalance","Connector Issue",
-    "Charging Issue","Discharging Issue","Remarks","Application Area",
-    "Current Location"
-]
+            st.rerun()
 
-# ==========================
-# DB FUNCTIONS
-# ==========================
+        else:
+            st.error("Invalid Login")
 
-def load_data():
-    conn = get_conn()
-    df = pd.read_sql_query("SELECT * FROM cassette", conn)
-    conn.close()
-    return df
+        conn.close()
 
+    st.stop()
+    col1, col2 = st.columns([8,1])
 
-def save_record(data):
-    conn = get_conn()
-    cur = conn.cursor()
+with col2:
+    if st.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
+        search = st.text_input("🔍 Search Cassette ID")
 
-    cols = ", ".join([f'"{c}"' for c in columns])
-    placeholders = ", ".join(["?"] * len(columns))
-    values = tuple(data.get(c, "") for c in columns)
+if search:
+    df = df[
+        df["Battery Cassette ID"]
+        .astype(str)
+        .str.contains(search, case=False, na=False)
+    ]
+    selected_id = st.selectbox(
+    "Select Cassette",
+    [""] + df["Battery Cassette ID"].astype(str).tolist()
+)
 
-    cur.execute(f"""
-    INSERT OR REPLACE INTO cassette ({cols})
-    VALUES ({placeholders})
-    """, values)
+if selected_id:
 
-    conn.commit()
-    conn.close()
+    row = df[df["Battery Cassette ID"] == selected_id].iloc[0]
 
+    st.metric("Voltage", row["Voltage"])
+    st.metric("SOC", row["SOC %"])
+    st.metric("SOH", row["SOH %"])
 
-def delete_record(cid):
-    conn = get_conn()
-    cur = conn.cursor()
+    st.write("Root Cause:", row["Root Cause"])
+    st.write("Location:", row["Current Location"])
+    csv = df.to_csv(index=False).encode("utf-8")
 
-    cur.execute('DELETE FROM cassette WHERE "Battery Cassette ID"=?', (cid,))
-    conn.commit()
-    conn.close()
-
-# ==========================
-# UI
-# ==========================
-
-st.title("🔋 Cassette Operation System")
-
-tab1, tab2, tab3 = st.tabs([
+st.download_button(
+    "📥 Export CSV",
+    csv,
+    "cassette_records.csv",
+    "text/csv"
+)
+tab1, tab2, tab3, tab4 = st.tabs([
     "➕ Add Entry",
     "📊 Database",
-    "📈 Analytics"
+    "📈 Analytics",
+    "✏ Edit Record"
 ])
-
-# ==========================
-# TAB 1 - ADD DATA
-# ==========================
-
-with tab1:
-
-    st.subheader("➕ Add New Record")
-
-    with st.form("add_form"):
-
-        data = {}
-        c1, c2 = st.columns(2)
-
-        for i, f in enumerate(columns):
-
-            target = c1 if i % 2 == 0 else c2
-
-            with target:
-                if f == "Date":
-                    data[f] = st.text_input(f, value=str(datetime.now().date()))
-                else:
-                    data[f] = st.text_input(f)
-
-        submit = st.form_submit_button("💾 Save Record")
-
-        if submit:
-            if data["Battery Cassette ID"].strip() == "":
-                st.error("Battery Cassette ID is required")
-            else:
-                save_record(data)
-                st.success("Record saved successfully")
-
-# ==========================
-# TAB 2 - DATABASE VIEW
-# ==========================
-
-with tab2:
-
-    st.subheader("📊 All Records")
+with tab4:
 
     df = load_data()
-    st.dataframe(df, use_container_width=True)
 
     if not df.empty:
 
-        st.markdown("### 🗑 Delete Record")
+        cid = st.selectbox(
+            "Select Cassette",
+            df["Battery Cassette ID"].tolist()
+        )
 
-        cid = st.selectbox("Select Cassette ID", df["Battery Cassette ID"].astype(str))
+        row = df[df["Battery Cassette ID"] == cid].iloc[0]
 
-        if st.button("Delete"):
-            delete_record(cid)
-            st.success("Record deleted")
-            st.rerun()
+        voltage = st.text_input(
+            "Voltage",
+            value=row["Voltage"]
+        )
 
-# ==========================
-# TAB 3 - ANALYTICS
-# ==========================
+        current = st.text_input(
+            "Current",
+            value=row["Current"]
+        )
 
-with tab3:
+        if st.button("Update"):
 
-    st.subheader("📈 Analytics Dashboard")
+            conn = get_conn()
 
-    df = load_data()
+            conn.execute("""
+            UPDATE cassette
+            SET Voltage=?,
+                Current=?
+            WHERE "Battery Cassette ID"=?
+            """,
+            (voltage, current, cid))
 
-    if df.empty:
-        st.warning("No data available")
-    else:
-        col = st.selectbox("Select Parameter", df.columns)
+            conn.commit()
+            conn.close()
 
-        counts = df[col].astype(str).value_counts()
+            st.success("Updated")
+            if st.session_state.role == "Admin":
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.bar(counts.index, counts.values, color="#00BFFF")
+    st.subheader("👤 User Management")
 
-        plt.xticks(rotation=45)
+    uname = st.text_input("Username")
+    pwd = st.text_input("Password")
+    role = st.selectbox(
+        "Role",
+        ["Admin","Engineer","Operator","Viewer"]
+    )
 
-        st.pyplot(fig)
+    status = st.selectbox(
+        "Status",
+        ["Active","Inactive"]
+    )
 
-        st.write("Total Records:", len(df))
+    if st.button("Create User"):
+
+        conn = get_conn()
+
+        conn.execute("""
+        INSERT OR REPLACE INTO users
+        VALUES(?,?,?,?)
+        """,
+        (uname,pwd,role,status))
+
+        conn.commit()
+        conn.close()
+
+        st.success("User Created")
+        
