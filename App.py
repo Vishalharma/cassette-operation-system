@@ -123,7 +123,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "➕ Add Entry",
     "📊 Database",
     "📈 Analytics",
-    "📋 EOL Test Report"
+    "📋 EOL Test System"
 ])
 
 # ==========================
@@ -168,9 +168,7 @@ with tab2:
     st.dataframe(df, use_container_width=True)
 
     if not df.empty:
-        st.markdown("### Delete Record")
-
-        cid = st.selectbox("Select Cassette ID", df["Battery Cassette ID"].astype(str))
+        cid = st.selectbox("Delete Cassette ID", df["Battery Cassette ID"].astype(str))
 
         if st.button("Delete"):
             delete_record(cid)
@@ -203,75 +201,147 @@ with tab3:
         st.metric("Total Records", len(df))
 
 # ==========================
-# TAB 4 - EOL REPORT (FULL)
+# TAB 4 - EOL SYSTEM (FULL STRUCTURED)
 # ==========================
 
 with tab4:
 
-    st.subheader("📋 EOL Test Report Dashboard")
+    st.subheader("📋 EOL Test System (Mechanical / Electrical / Battery / ICU / TIU)")
 
-    if os.path.exists(EOL_FILE):
+    # ==========================
+    # INIT FILE
+    # ==========================
+    if not os.path.exists(EOL_FILE):
+        pd.DataFrame(columns=[
+            "Battery Cassette ID","Category","Step","Area","Test Item",
+            "Requirement","Expected","Actual","Result","Inspector","Notes"
+        ]).to_csv(EOL_FILE, index=False)
 
-        df = pd.read_csv(EOL_FILE)
+    # ==========================
+    # INPUT FORM
+    # ==========================
+    with st.form("eol_form"):
 
-        # ======================
-        # FILTER BY CASSETTE ID
-        # ======================
-        if "Battery Cassette ID" in df.columns:
-            ids = df["Battery Cassette ID"].dropna().unique()
-            selected = st.selectbox("🔗 Cassette ID", ["All"] + list(ids))
+        st.markdown("### 🧩 Add EOL Test Data")
 
-            if selected != "All":
-                df = df[df["Battery Cassette ID"] == selected]
+        cassette_id = st.text_input("Battery Cassette ID")
 
-        # ======================
+        category = st.selectbox(
+            "Category",
+            ["Mechanical", "Electrical", "Battery", "ICU", "TIU"]
+        )
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            step = st.text_input("Step")
+            area = st.text_input("Area")
+            test_item = st.text_input("Test Item")
+            requirement = st.text_input("Requirement")
+
+        with c2:
+            expected = st.text_input("Expected")
+            actual = st.text_input("Actual")
+            inspector = st.text_input("Inspector")
+            notes = st.text_input("Notes")
+
+        result = st.selectbox("Result", ["Pass", "Fail", "NA"])
+
+        submit = st.form_submit_button("Save EOL")
+
+        if submit:
+
+            new_row = pd.DataFrame([{
+                "Battery Cassette ID": cassette_id,
+                "Category": category,
+                "Step": step,
+                "Area": area,
+                "Test Item": test_item,
+                "Requirement": requirement,
+                "Expected": expected,
+                "Actual": actual,
+                "Result": result,
+                "Inspector": inspector,
+                "Notes": notes
+            }])
+
+            old = pd.read_csv(EOL_FILE)
+            updated = pd.concat([old, new_row], ignore_index=True)
+            updated.to_csv(EOL_FILE, index=False)
+
+            st.success("EOL Record Saved 🚀")
+            st.rerun()
+
+    # ==========================
+    # VIEW + FILTER + DASHBOARD
+    # ==========================
+    st.markdown("---")
+    st.subheader("📊 EOL Records")
+
+    df = pd.read_csv(EOL_FILE)
+
+    if not df.empty:
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            cat_filter = st.selectbox("Category Filter", ["All"] + list(df["Category"].unique()))
+
+        with c2:
+            cassette_filter = st.selectbox("Cassette Filter", ["All"] + list(df["Battery Cassette ID"].unique()))
+
+        if cat_filter != "All":
+            df = df[df["Category"] == cat_filter]
+
+        if cassette_filter != "All":
+            df = df[df["Battery Cassette ID"] == cassette_filter]
+
         # SEARCH
-        # ======================
-        search = st.text_input("🔍 Search in EOL Report")
+        search = st.text_input("🔍 Search EOL Data")
 
         if search:
             df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False).any(), axis=1)]
 
-        # ======================
-        # PASS / FAIL DASHBOARD
-        # ======================
+        # ==========================
+        # DASHBOARD
+        # ==========================
         if "Result" in df.columns:
 
-            pass_count = (df["Result"].str.lower() == "pass").sum()
-            fail_count = (df["Result"].str.lower() == "fail").sum()
+            pass_count = (df["Result"] == "Pass").sum()
+            fail_count = (df["Result"] == "Fail").sum()
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Steps", len(df))
-            c2.metric("✅ Pass", pass_count)
-            c3.metric("❌ Fail", fail_count)
+            c2.metric("Pass", pass_count)
+            c3.metric("Fail", fail_count)
 
             fig, ax = plt.subplots()
             df["Result"].value_counts().plot(kind="bar", ax=ax)
             st.pyplot(fig)
 
-        # ======================
-        # HIGHLIGHT FAIL
-        # ======================
+        # ==========================
+        # FAIL HIGHLIGHT
+        # ==========================
         def highlight(row):
-            if "Result" in row and str(row["Result"]).lower() == "fail":
+            if row["Result"] == "Fail":
                 return ["background-color: #ffcccc"] * len(row)
             return [""] * len(row)
 
         st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
 
-        # ======================
+        # ==========================
         # EXPORT EXCEL
-        # ======================
+        # ==========================
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="EOL_Report")
+            df.to_excel(writer, index=False, sheet_name="EOL")
 
         st.download_button(
-            "📥 Download Excel",
+            "📥 Download EOL Excel",
             output.getvalue(),
             file_name="EOL_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     else:
-        st.warning("eol_report.csv not found in project folder")
+        st.info("No EOL data found")
