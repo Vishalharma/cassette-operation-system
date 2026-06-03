@@ -1,267 +1,323 @@
-import streamlit as st
-import pandas as pd
-import os
-import io
+import sys
+import socket
+import threading
+import cantools
+import pyqtgraph as pg
 
-st.set_page_config(page_title="OEM EOL Checklist System", layout="wide")
+from PyQt5.QtCore import Qt, QObject, pyqtSignal
+from PyQt5.QtWidgets import (
+ QApplication, QMainWindow, QWidget,
+ QVBoxLayout, QHBoxLayout, QPushButton,
+ QFileDialog, QTableWidget, QTableWidgetItem,
+ QListWidget, QLabel, QComboBox,
+ QTextEdit, QSplitter
+)
 
-FILE = "eol_checklist.csv"
+HOST = "192.168.0.7"
+PORT = 20001
 
-SECTIONS = ["Mechanical", "Battery_BMS", "Electrical", "ICU", "TIU_Cloud"]
+class SignalBridge(QObject):
+ update_signal = pyqtSignal(str, float)
+ update_trace = pyqtSignal(str)
 
-# ==========================
-# PREDEFINED OEM CHECKLIST
-# ==========================
+bridge = SignalBridge()
 
-PREDEFINED = {
+class TCPClient(threading.Thread):
 
-"Mechanical": [
-    "Physical appearance",
-    "Dents/Bumps",
-    "Dirt/Oil stains",
-    "Cracks/Burrs",
-    "Nameplate & Safety labels",
-    "Dimensions (Height, Width, Length)",
-    "Battery polarity marking",
-    "Cassette Serial Number",
-    "Clamps condition",
-    "Wiring harness routing",
-    "Thermal hoses",
-    "Torque verification",
-    "Overall weight",
-    "Cassette dimensions",
-    "Cooling flow",
-    "Coolant temperature",
-    "Coolant leakage (Static)",
-    "Coolant leakage (Dynamic)",
-    "Swap connector visual inspection",
-    "Pin mating verification",
-    "Power connector inspection"
-],
+ def __init__(self, window):
+ super().__init__(daemon=True)
+ self.window = window
 
-"Battery_BMS": [
-    "Pack Serial Number",
-    "Shipping SOC",
-    "Battery SOC @50%",
-    "Vmax",
-    "Vmin",
-    "Tmax",
-    "Tmin",
-    "Delta V",
-    "Pack Voltage",
-    "Delta T",
-    "BMS Software Version",
-    "BMS Hardware Version",
-    "Insulation Resistance",
-    "AIS038 Insulation Test",
-    "Hall Effect Sensor",
-    "Pressure Sensor",
-    "Humidity Sensor",
-    "Leakage Sensor",
-    "Smoke Sensor",
-    "Full Charge Cycle Test",
-    "Full Discharge Cycle Test",
-    "Temperature Rise",
-    "Dispense Time"
-],
+ def run(self):
 
-"Electrical": [
-    "24V Supply",
-    "CAN Communication",
-    "HVB Detection",
-    "Main Positive Relay",
-    "Main Negative Relay",
-    "Precharge Relay",
-    "Cell Voltage Reading",
-    "Continuity Test",
-    "Connection Robustness",
-    "DC-DC Function",
-    "MSD Verification",
-    "IGN Signal",
-    "Charge Enable",
-    "TMS ON",
-    "HVIL Loop Check",
-    "Power ON Test",
-    "Contactor ON Test"
-],
+ try:
+ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+ sock.connect((HOST, PORT))
 
-"ICU": [
-    "ICU Hardware Version",
-    "ICU Software Version",
-    "Verification Software Version",
-    "Data Matching ICU vs BMS",
-    "HVIL Reading",
-    "Inlet Temperature",
-    "Outlet Temperature",
-    "Leakage Sensor Reading",
-    "Ambient Temperature",
-    "Charge Enable Signal",
-    "Requested Current",
-    "CC/CV Verification"
-],
+ bridge.update_trace.emit(
+ f"Connected to {HOST}:{PORT}"
+ )
 
-"TIU_Cloud": [
-    "TIU Hardware Version",
-    "TIU Software Version",
-    "Cloud Data Sync",
-    "TIU Communication Check",
-    "Final Data Matching",
-    "Cloud Upload Verification"
-]
-}
+ while True:
 
-# ==========================
-# INIT FILE
-# ==========================
+ data = sock.recv(1024)
 
-if not os.path.exists(FILE):
-    pd.DataFrame(columns=[
-        "Cassette_ID","Section","Parameter","Actual","Result","Inspector","Notes"
-    ]).to_csv(FILE, index=False)
+ if not data:
+ break
 
-# ==========================
-# UI
-# ==========================
+ bridge.update_trace.emit(
+ data.hex().upper()
+ )
 
-st.title("🔋 OEM EOL Checklist System (Sun Mobility Style)")
+# Dummy values
+ bridge.update_signal.emit(
+ "PackVoltage",
+ 650.5
+ )
 
-tab1, tab2 = st.tabs(["🧾 Checklist Entry", "📊 Dashboard + Excel"])
+ bridge.update_signal.emit(
+ "SOC",
+ 78.2
+ )
 
-# ==========================
-# TAB 1 - ENTRY
-# ==========================
+ except Exception as e:
+ bridge.update_trace.emit(
+ str(e)
+ )
 
-with tab1:
+class CANAnalyzer(QMainWindow):
 
-    st.subheader("Enter EOL Data")
+ def __init__(self):
+ super().__init__()
 
-    cassette_id = st.text_input("Cassette ID")
-    section = st.selectbox("Section", SECTIONS)
+ self.db = None
+ self.signal_map = {}
 
-    st.markdown("### 📋 Predefined Checklist")
+ self.setWindowTitle(
+ "CAN Analyzer"
+ )
 
-    checklist = PREDEFINED[section]
+ self.resize(
+ 1400,
+ 800
+ )
 
-    entries = []
+ root = QWidget()
+ self.setCentralWidget(root)
 
-    with st.form("form"):
+ layout = QVBoxLayout(root)
 
-        inspector = st.text_input("Inspector")
+ top = QHBoxLayout()
 
-        for item in checklist:
+ self.load_btn = QPushButton(
+ "Load DBC"
+ )
 
-            st.markdown(f"**{item}**")
+ self.load_btn.clicked.connect(
+ self.load_dbc
+ )
 
-            col1, col2 = st.columns(2)
+ self.comm_combo = QComboBox()
 
-            with col1:
-                actual = st.text_input(f"Actual - {item}")
+ self.comm_combo.addItems([
+ "PEAK PCAN",
+ "RS485",
+ "USR-CANET200"
+ ])
 
-            with col2:
-                result = st.selectbox(
-                    f"Result - {item}",
-                    ["Pass", "Fail", "Pending"],
-                    key=item
-                )
+ self.connect_btn = QPushButton(
+ "Connect"
+ )
 
-            notes = st.text_input(f"Notes - {item}")
+ self.connect_btn.clicked.connect(
+ self.connect_device
+ )
 
-            entries.append({
-                "Cassette_ID": cassette_id,
-                "Section": section,
-                "Parameter": item,
-                "Actual": actual,
-                "Result": result,
-                "Inspector": inspector,
-                "Notes": notes
-            })
+ top.addWidget(self.load_btn)
+ top.addWidget(QLabel("Communication"))
+ top.addWidget(self.comm_combo)
+ top.addWidget(self.connect_btn)
 
-        submit = st.form_submit_button("Save Full Section")
+ layout.addLayout(top)
 
-        if submit:
+ splitter = QSplitter(
+ Qt.Horizontal
+ )
 
-            df_new = pd.DataFrame(entries)
-            df_old = pd.read_csv(FILE)
+# Signal List
+ left = QWidget()
+ left_layout = QVBoxLayout(left)
 
-            pd.concat([df_old, df_new], ignore_index=True).to_csv(FILE, index=False)
+ left_layout.addWidget(
+ QLabel("Signals")
+ )
 
-            st.success("Section Saved Successfully 🚀")
-            st.rerun()
+ self.signal_list = QListWidget()
 
-# ==========================
-# TAB 2 - DASHBOARD
-# ==========================
+ left_layout.addWidget(
+ self.signal_list
+ )
 
-with tab2:
+ splitter.addWidget(left)
 
-    st.subheader("📊 EOL Dashboard")
+# Center
+ center = QWidget()
+ center_layout = QVBoxLayout(center)
 
-    df = pd.read_csv(FILE)
+ self.graph = pg.PlotWidget()
 
-    if df.empty:
-        st.warning("No data")
-        st.stop()
+ self.graph.showGrid(
+ x=True,
+ y=True
+ )
 
-    # FILTERS
-    c1, c2 = st.columns(2)
+ center_layout.addWidget(
+ self.graph
+ )
 
-    with c1:
-        sec = st.selectbox("Filter Section", ["All"] + SECTIONS)
+ self.xdata = []
+ self.ydata = []
 
-    with c2:
-        cassette = st.selectbox("Filter Cassette", ["All"] + list(df["Cassette_ID"].unique()))
+ self.curve = self.graph.plot(
+ [],
+ []
+ )
 
-    if sec != "All":
-        df = df[df["Section"] == sec]
+ self.table = QTableWidget()
 
-    if cassette != "All":
-        df = df[df["Cassette_ID"] == cassette]
+ self.table.setColumnCount(2)
 
-    # SEARCH
-    search = st.text_input("🔍 Search")
+ self.table.setHorizontalHeaderLabels(
+ ["Signal", "Value"]
+ )
 
-    if search:
-        df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False).any(), axis=1)]
+ center_layout.addWidget(
+ self.table
+ )
 
-    # SUMMARY
-    c1, c2, c3 = st.columns(3)
+ splitter.addWidget(center)
 
-    c1.metric("Total", len(df))
-    c2.metric("Pass", (df["Result"] == "Pass").sum())
-    c3.metric("Fail", (df["Result"] == "Fail").sum())
+# Trace
+ right = QWidget()
+ right_layout = QVBoxLayout(right)
 
-    # FAIL TABLE
-    st.markdown("### ❌ Failed Items")
-    st.dataframe(df[df["Result"] == "Fail"], use_container_width=True)
+ self.trace = QTextEdit()
 
-    # FULL TABLE
-    st.markdown("### 📋 Full Data")
+ self.trace.setReadOnly(True)
 
-    def color(row):
-        if row["Result"] == "Fail":
-            return ["background-color:#ffcccc"] * len(row)
-        return [""] * len(row)
+ right_layout.addWidget(
+ QLabel("Trace")
+ )
 
-    st.dataframe(df.style.apply(color, axis=1), use_container_width=True)
+ right_layout.addWidget(
+ self.trace
+ )
 
-    # ==========================
-    # EXPORT EXCEL (SHEET WISE)
-    # ==========================
+ splitter.addWidget(right)
 
-    output = io.BytesIO()
+ splitter.setSizes(
+ [250, 800, 350]
+ )
 
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+ layout.addWidget(splitter)
 
-        for sec in SECTIONS:
-            df[df["Section"] == sec].to_excel(writer, sheet_name=sec, index=False)
+ bridge.update_signal.connect(
+ self.update_signal
+ )
 
-        summary = df["Result"].value_counts().reset_index()
-        summary.columns = ["Result", "Count"]
-        summary.to_excel(writer, sheet_name="Summary", index=False)
+ bridge.update_trace.connect(
+ self.trace.append
+ )
 
-    st.download_button(
-        "📥 Download OEM EOL Excel (Section Wise)",
-        output.getvalue(),
-        file_name="OEM_EOL_Checklist.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+ def load_dbc(self):
+
+ file_name, _ = QFileDialog.getOpenFileName(
+ self,
+ "Load DBC",
+ "",
+ "*.dbc"
+ )
+
+ if not file_name:
+ return
+
+ self.db = cantools.database.load_file(
+ file_name
+ )
+
+ self.signal_list.clear()
+
+ for msg in self.db.messages:
+
+ for sig in msg.signals:
+
+ self.signal_list.addItem(
+ sig.name
+ )
+
+ self.trace.append(
+ "DBC Loaded"
+ )
+
+ def connect_device(self):
+
+ mode = self.comm_combo.currentText()
+
+ self.trace.append(
+ f"Connecting: {mode}"
+ )
+
+ if mode == "USR-CANET200":
+ TCPClient(self).start()
+
+ elif mode == "PEAK PCAN":
+ self.trace.append(
+ "PEAK support to be added"
+ )
+
+ elif mode == "RS485":
+ self.trace.append(
+ "RS485 support to be added"
+ )
+
+ def update_signal(
+ self,
+ signal,
+ value
+ ):
+
+ if signal not in self.signal_map:
+
+ row = self.table.rowCount()
+
+ self.table.insertRow(row)
+
+ self.table.setItem(
+ row,
+ 0,
+ QTableWidgetItem(signal)
+ )
+
+ self.table.setItem(
+ row,
+ 1,
+ QTableWidgetItem(str(value))
+ )
+
+ self.signal_map[signal] = row
+
+ else:
+
+ row = self.signal_map[signal]
+
+ self.table.item(
+ row,
+ 1
+ ).setText(
+ str(value)
+ )
+
+ if signal == "PackVoltage":
+
+ self.xdata.append(
+ len(self.xdata)
+ )
+
+ self.ydata.append(
+ value
+ )
+
+ self.curve.setData(
+ self.xdata,
+ self.ydata
+ )
+
+if __name__ == "__main__":
+
+ app = QApplication(sys.argv)
+
+ win = CANAnalyzer()
+
+ win.show()
+
+ sys.exit(app.exec_())
