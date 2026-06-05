@@ -1,58 +1,57 @@
 import streamlit as st
 from pypdf import PdfReader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.chains.question_answering import load_qa_chain
-from langchain_openai import ChatOpenAI
 
-st.set_page_config(page_title="Research Paper Assistant")
+st.set_page_config(
+    page_title="Research Paper Assistant",
+    page_icon="📚"
+)
 
-st.title("📚 Research Paper RAG Assistant")
+st.title("📚 Research Paper Assistant")
+st.write("Upload a PDF research paper and read its contents.")
 
-pdf = st.file_uploader("Upload Research Paper", type="pdf")
+uploaded_file = st.file_uploader(
+    "Upload PDF",
+    type=["pdf"]
+)
 
-if pdf:
+if uploaded_file:
 
-    reader = PdfReader(pdf)
+    try:
+        pdf_reader = PdfReader(uploaded_file)
 
-    text = ""
+        text = ""
 
-    for page in reader.pages:
-        text += page.extract_text()
+        for page in pdf_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
-    )
+        st.success("PDF Loaded Successfully")
 
-    chunks = splitter.split_text(text)
+        st.subheader("Preview")
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
+        if len(text) > 3000:
+            st.text_area(
+                "Extracted Text",
+                text[:3000] + "...",
+                height=400
+            )
+        else:
+            st.text_area(
+                "Extracted Text",
+                text,
+                height=400
+            )
 
-    vector_store = FAISS.from_texts(chunks, embeddings)
+        st.subheader("Statistics")
 
-    st.success("Paper Loaded Successfully")
+        words = len(text.split())
+        chars = len(text)
 
-    query = st.text_input("Ask Question About Paper")
+        col1, col2 = st.columns(2)
 
-    if query:
+        col1.metric("Words", words)
+        col2.metric("Characters", chars)
 
-        docs = vector_store.similarity_search(query)
-
-        llm = ChatOpenAI(
-            api_key="YOUR_OPENAI_API_KEY",
-            model="gpt-4o-mini"
-        )
-
-        chain = load_qa_chain(llm, chain_type="stuff")
-
-        answer = chain.run(
-            input_documents=docs,
-            question=query
-        )
-
-        st.write("### Answer")
-        st.write(answer)
+    except Exception as e:
+        st.error(f"Error: {e}")
