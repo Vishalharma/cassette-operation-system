@@ -18,6 +18,22 @@ if uploaded_file:
             text += page_text
 
     st.success("PDF Loaded Successfully ✅")
+    import streamlit as st
+from PyPDF2 import PdfReader
+
+st.title("PDF Assistant")
+
+file = st.file_uploader("Upload PDF", type="pdf")
+
+if file:
+    reader = PdfReader(file)
+
+    text = ""
+    for page in reader.pages:
+        if page.extract_text():
+            text += page.extract_text()
+
+    st.write(text[:5000])
 
     st.subheader("📄 Preview")
     st.text_area("Extracted Text", text[:8000], height=400)
