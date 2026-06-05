@@ -1,70 +1,27 @@
 import streamlit as st
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
-# Page Config
-st.set_page_config(
-    page_title="Research Paper Assistant",
-    page_icon="📚",
-    layout="wide"
-)
+st.set_page_config(page_title="PDF Assistant", page_icon="📚")
 
-# Title
-st.title("📚 Research Paper Assistant")
-st.write("Upload a research paper PDF and analyze its contents.")
+st.title("📚 Research PDF Assistant")
 
-# Upload PDF
-uploaded_file = st.file_uploader(
-    "Choose a PDF file",
-    type=["pdf"]
-)
+uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
 
-if uploaded_file is not None:
+if uploaded_file:
+    pdf = PdfReader(uploaded_file)
 
-    try:
-        pdf_reader = PdfReader(uploaded_file)
+    text = ""
 
-        text = ""
+    for page in pdf.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text
 
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text
+    st.success("PDF Loaded Successfully ✅")
 
-        st.success("✅ PDF uploaded successfully!")
+    st.subheader("📄 Preview")
+    st.text_area("Extracted Text", text[:8000], height=400)
 
-        # Statistics
-        word_count = len(text.split())
-        char_count = len(text)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric("Total Words", word_count)
-
-        with col2:
-            st.metric("Total Characters", char_count)
-
-        st.subheader("📄 Extracted Text")
-
-        st.text_area(
-            "Content",
-            text[:10000],
-            height=500
-        )
-
-        # Search Feature
-        st.subheader("🔍 Search in Paper")
-
-        keyword = st.text_input("Enter keyword")
-
-        if keyword:
-            if keyword.lower() in text.lower():
-                st.success(f"'{keyword}' found in document")
-            else:
-                st.warning(f"'{keyword}' not found")
-
-    except Exception as e:
-        st.error(f"Error reading PDF: {e}")
-
-else:
-    st.info("Upload a PDF file to begin.")
+    st.subheader("📊 Stats")
+    st.metric("Words", len(text.split()))
+    st.metric("Characters", len(text))
